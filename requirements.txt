@@ -1,2 +1,2 @@
 numpy~=1.26.2
-polars~=0.20.3
+polars~=1.0

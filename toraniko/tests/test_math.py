@@ -3,7 +3,8 @@
 import pytest
 import polars as pl
 import numpy as np
-from toraniko.math import center_xsection, norm_xsection, winsorize
+from polars.testing import assert_frame_equal
+from toraniko.math import center_xsection, norm_xsection, winsorize, winsorize_xsection
 
 
 @pytest.fixture
@@ -200,7 +201,7 @@ def test_norm_xsection_nan_values():
     -------
     The NaN values are preserved in the output.
     """
-    data = pl.DataFrame({"group": ["A", "A", "B", "B"], "value": [1, np.nan, 4, np.nan]})
+    data = pl.DataFrame({"group": ["A", "A", "B", "B"], "value": [1, np.nan, 4, np.nan]}, strict=False)
     normalized_df = data.with_columns(norm_xsection("value", "group"))
     expected_normalized_values = [0.0, np.nan, 0.0, np.nan]
     assert np.allclose(normalized_df["value"].to_numpy(), expected_normalized_values, equal_nan=True)
@@ -453,6 +454,7 @@ def test_winsorize_axis_0_with_nans(sample_columns_with_nans):
     )
     np.testing.assert_allclose(result, expected, equal_nan=True)
 
+
 def test_winsorize_axis_1_with_nans(sample_rows_with_nans):
     """
     Test winsorize function with NaN values.
@@ -481,6 +483,7 @@ def test_winsorize_axis_1_with_nans(sample_rows_with_nans):
         ]
     ).T
     np.testing.assert_allclose(result, expected, equal_nan=True)
+
 
 def test_winsorize_invalid_percentile(sample_rows):
     """
@@ -548,3 +551,84 @@ def test_winsorize_all_nan():
     data = np.array([[np.nan, np.nan], [np.nan, np.nan]])
     result = winsorize(data)
     np.testing.assert_array_equal(result, data)
+
+
+###
+# winsorize_xsection
+###
+
+
+@pytest.fixture
+def sample_df():
+    """
+    Fixture to provide a sample DataFrame for testing.
+    """
+    return pl.DataFrame(
+        {
+            "group": ["A", "A", "A", "B", "B", "B", "C", "C", "C"],
+            "value1": [1, 2, 10, 4, 5, 20, 7, 8, 30],
+            "value2": [100, 200, 1000, 400, 500, 2000, 700, 800, 3000],
+        }
+    )
+
+
+@pytest.mark.parametrize("lazy", [True, False])
+def test_winsorize_xsection(sample_df, lazy):
+    """
+    Test basic functionality of winsorize_xsection.
+    """
+    if lazy:
+        result = winsorize_xsection(
+            sample_df.lazy(), data_cols=("value1", "value2"), group_col="group", percentile=0.1
+        ).sort("group")
+        assert isinstance(result, pl.LazyFrame)
+        result = result.collect()
+    else:
+        result = winsorize_xsection(sample_df, data_cols=("value1", "value2"), group_col="group", percentile=0.1).sort(
+            "group"
+        )
+
+    expected = pl.DataFrame(
+        {
+            "group": ["A", "A", "A", "B", "B", "B", "C", "C", "C"],
+            "value1": [1.2, 2.0, 8.4, 4.2, 5.0, 17.0, 7.2, 8.0, 25.6],
+            "value2": [120.0, 200.0, 840.0, 420.0, 500.0, 1700.0, 720.0, 800.0, 2560.0],
+        }
+    )
+
+    assert_frame_equal(result, expected, check_exact=False)
+
+
+@pytest.fixture
+def sample_df_with_nans():
+    """
+    Fixture to provide a sample DataFrame with NaN values for testing.
+    """
+    return pl.DataFrame(
+        {
+            "group": ["A", "A", "A", "B", "B", "B", "C", "C", "C"],
+            "value1": [1, np.nan, 10, 4, 5, np.nan, 7, 8, 30],
+            "value2": [100, 200, np.nan, np.nan, 500, 2000, 700, np.nan, 3000],
+        },
+        strict=False,
+    )
+
+
+def test_winsorize_xsection_with_nans(sample_df_with_nans):
+    """
+    Test winsorize_xsection with NaN values.
+    """
+    result = winsorize_xsection(
+        sample_df_with_nans, data_cols=("value1", "value2"), group_col="group", percentile=0.1
+    ).sort("group")
+
+    expected = pl.DataFrame(
+        {
+            "group": ["A", "A", "A", "B", "B", "B", "C", "C", "C"],
+            "value1": [1.9, np.nan, 9.1, 4.1, 4.9, np.nan, 7.2, 8.0, 25.6],
+            "value2": [110.0, 190.0, np.nan, np.nan, 650.0, 1850.0, 930.0, np.nan, 2770.0],
+        },
+        strict=False,
+    )
+
+    assert_frame_equal(result, expected, check_exact=False)

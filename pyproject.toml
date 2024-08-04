@@ -27,7 +27,7 @@ classifiers = [
 [tool.poetry.dependencies]
 python = ">=3.10,<4.0"
 numpy = "~1.26.2"
-polars = "~0.20.3"
+polars = "~1.0.0"
 
 [tool.poetry.dev-dependencies]
 pytest = "~7.4.4"

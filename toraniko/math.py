@@ -124,7 +124,13 @@ def winsorize_xsection(
             group = group.with_columns(pl.Series(col, winsorized_data).alias(col))
         return group
 
-    grouped = df.groupby(group_col).apply(winsorize_group)
+    match df:
+        case pl.DataFrame():
+            grouped = df.group_by(group_col).map_groups(winsorize_group)
+        case pl.LazyFrame():
+            grouped = df.group_by(group_col).map_groups(winsorize_group, schema=df.collect_schema())
+        case _:
+            raise TypeError("`df` must be a Polars DataFrame or LazyFrame")
     return grouped
 
 
