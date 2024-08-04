@@ -81,8 +81,11 @@ def winsorize(data: np.ndarray, percentile: float = 0.05, axis: int = 0) -> np.n
     -------
     numpy array
     """
-    if not 0 <= percentile <= 1:
-        raise ValueError("`percentile` must be between 0 and 1")
+    try:
+        if not 0 <= percentile <= 1:
+            raise ValueError("`percentile` must be between 0 and 1")
+    except AttributeError as e:
+        raise TypeError("`percentile` must be a numeric type, such as an int or float") from e
 
     fin_data = np.where(np.isfinite(data), data, np.nan)
 

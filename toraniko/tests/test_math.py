@@ -3,7 +3,7 @@
 import pytest
 import polars as pl
 import numpy as np
-from toraniko.math import center_xsection, norm_xsection
+from toraniko.math import center_xsection, norm_xsection, winsorize
 
 
 @pytest.fixture
@@ -265,3 +265,286 @@ def test_norm_xsection_custom_range_large_values():
     normalized_df = data.with_columns(norm_xsection("value", "group", lower=100, upper=200))
     expected_normalized_values = [100.0, 200.0, 100.0, 200.0]
     assert np.allclose(normalized_df["value"].to_numpy(), expected_normalized_values)
+
+
+###
+# `winsorize`
+###
+
+
+@pytest.fixture
+def sample_columns():
+    """
+    Fixture to provide sample numpy array columns for testing.
+
+    Returns
+    -------
+    np.ndarray
+    """
+    return np.array(
+        [
+            [1, 100, 1000],
+            [2, 200, 2000],
+            [3, 300, 3000],
+            [4, 400, 4000],
+            [5, 500, 5000],
+            [6, 600, 6000],
+            [7, 700, 7000],
+            [8, 800, 8000],
+            [9, 900, 9000],
+            [10, 1000, 10000],
+        ]
+    )
+
+
+@pytest.fixture
+def sample_columns_with_nans():
+    """
+    Fixture to provide sample numpy array columns for testing.
+
+    Returns
+    -------
+    np.ndarray
+    """
+    return np.array(
+        [
+            [1, 100, np.nan],
+            [2, 200, 2000],
+            [3, 300, np.nan],
+            [4, 400, np.nan],
+            [5, 500, 5000],
+            [6, 600, 6000],
+            [7, 700, 7000],
+            [8, 800, 8000],
+            [9, 900, np.nan],
+            [10, 1000, 10000],
+        ]
+    )
+
+
+@pytest.fixture
+def sample_rows():
+    """
+    Fixture to provide sample numpy rows for testing.
+
+    Returns
+    -------
+    np.ndarray
+    """
+    return np.array(
+        [
+            [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+            [100, 200, 300, 400, 500, 600, 700, 800, 900, 1000],
+            [1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000],
+        ]
+    )
+
+
+@pytest.fixture
+def sample_rows_with_nans():
+    """
+    Fixture to provide sample numpy rows for testing.
+
+    Returns
+    -------
+    np.ndarray
+    """
+    return np.array(
+        [
+            [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+            [100, 200, 300, 400, 500, 600, 700, 800, 900, 1000],
+            [np.nan, 2000, np.nan, np.nan, 5000, 6000, 7000, 8000, np.nan, 10000],
+        ]
+    )
+
+
+def test_winsorize_axis_0(sample_columns):
+    """
+    Test column-wise winsorization (axis=0).
+
+    This test checks if the function correctly winsorizes a 2D array column-wise.
+
+    Parameters
+    ----------
+    sample_columns : np.ndarray
+        Sample data fixture for column-wise testing.
+
+    Raises
+    ------
+    AssertionError
+        If the winsorized output doesn't match the expected result.
+    """
+    result = winsorize(sample_columns, percentile=0.2, axis=0)
+
+    # Expected results (calculated manually for 20th and 80th percentiles)
+    expected = np.array(
+        [
+            [2.8, 280, 2800],
+            [2.8, 280, 2800],
+            [3.0, 300, 3000],
+            [4.0, 400, 4000],
+            [5.0, 500, 5000],
+            [6.0, 600, 6000],
+            [7.0, 700, 7000],
+            [8.0, 800, 8000],
+            [8.2, 820, 8200],
+            [8.2, 820, 8200],
+        ]
+    )
+
+    np.testing.assert_array_almost_equal(result, expected)
+
+
+def test_winsorize_axis_1(sample_rows):
+    """
+    Test row-wise winsorization (axis=1).
+
+    This test checks if the function correctly winsorizes a 2D array row-wise.
+
+    Parameters
+    ----------
+    sample_rows : np.ndarray
+        Sample data fixture for row-wise testing.
+
+    Raises
+    ------
+    AssertionError
+        If the winsorized output doesn't match the expected result.
+    """
+    result = winsorize(sample_rows, percentile=0.2, axis=1)
+
+    # Expected results (calculated manually for 20th and 80th percentiles)
+    expected = np.array(
+        [
+            [2.8, 2.8, 3, 4, 5, 6, 7, 8, 8.2, 8.2],
+            [280, 280, 300, 400, 500, 600, 700, 800, 820, 820],
+            [2800, 2800, 3000, 4000, 5000, 6000, 7000, 8000, 8200, 8200],
+        ]
+    )
+
+    np.testing.assert_array_almost_equal(result, expected)
+
+
+def test_winsorize_axis_0_with_nans(sample_columns_with_nans):
+    """
+    Test winsorize function with NaN values.
+
+    This test verifies that the function handles NaN values correctly.
+
+    Raises
+    ------
+    AssertionError
+        If the winsorized output doesn't handle NaN values as expected.
+    """
+    result = winsorize(sample_columns_with_nans, percentile=0.2, axis=0)
+    expected = np.array(
+        [
+            [2.8e00, 2.8e02, np.nan],
+            [2.8e00, 2.8e02, 5.0e03],
+            [3.0e00, 3.0e02, np.nan],
+            [4.0e00, 4.0e02, np.nan],
+            [5.0e00, 5.0e02, 5.0e03],
+            [6.0e00, 6.0e02, 6.0e03],
+            [7.0e00, 7.0e02, 7.0e03],
+            [8.0e00, 8.0e02, 8.0e03],
+            [8.2e00, 8.2e02, np.nan],
+            [8.2e00, 8.2e02, 8.0e03],
+        ]
+    )
+    np.testing.assert_allclose(result, expected, equal_nan=True)
+
+def test_winsorize_axis_1_with_nans(sample_rows_with_nans):
+    """
+    Test winsorize function with NaN values.
+
+    This test verifies that the function handles NaN values correctly.
+
+    Raises
+    ------
+    AssertionError
+        If the winsorized output doesn't handle NaN values as expected.
+    """
+    result = winsorize(sample_rows_with_nans, percentile=0.2, axis=1)
+    # take transpose of axis=0 test to test axis=1
+    expected = np.array(
+        [
+            [2.8e00, 2.8e02, np.nan],
+            [2.8e00, 2.8e02, 5.0e03],
+            [3.0e00, 3.0e02, np.nan],
+            [4.0e00, 4.0e02, np.nan],
+            [5.0e00, 5.0e02, 5.0e03],
+            [6.0e00, 6.0e02, 6.0e03],
+            [7.0e00, 7.0e02, 7.0e03],
+            [8.0e00, 8.0e02, 8.0e03],
+            [8.2e00, 8.2e02, np.nan],
+            [8.2e00, 8.2e02, 8.0e03],
+        ]
+    ).T
+    np.testing.assert_allclose(result, expected, equal_nan=True)
+
+def test_winsorize_invalid_percentile(sample_rows):
+    """
+    Test winsorize function with invalid percentile values.
+
+    This test checks if the function raises a ValueError for percentile values outside [0, 1].
+
+    Raises
+    ------
+    AssertionError
+        If the function doesn't raise a ValueError for invalid percentile values.
+    """
+    with pytest.raises(TypeError):
+        winsorize(sample_rows, percentile="string_percentile")
+    with pytest.raises(ValueError):
+        winsorize(sample_rows, percentile=-0.1)
+    with pytest.raises(ValueError):
+        winsorize(sample_rows, percentile=1.1)
+
+
+def test_winsorize_1d_array():
+    """
+    Test winsorize function with a 1D array.
+
+    This test verifies that the function works correctly with 1D input.
+
+    Raises
+    ------
+    AssertionError
+        If the winsorized output doesn't match the expected result for a 1D array.
+    """
+    data = np.array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+    result = winsorize(data, percentile=0.2)
+    expected = np.array([2.8, 2.8, 3, 4, 5, 6, 7, 8, 8.2, 8.2])
+    np.testing.assert_array_equal(result, expected)
+
+
+def test_winsorize_empty_array():
+    """
+    Test winsorize function with an empty array.
+
+    This test checks if the function handles empty arrays correctly.
+
+    Raises
+    ------
+    AssertionError
+        If the function doesn't return an empty array for empty input.
+    """
+    data = np.array([])
+    result = winsorize(data)
+    np.testing.assert_array_equal(result, data)
+
+
+def test_winsorize_all_nan():
+    """
+    Test winsorize function with an array containing only NaN values.
+
+    This test verifies that the function handles arrays with only NaN values correctly.
+
+    Raises
+    ------
+    AssertionError
+        If the function doesn't return an array of NaN values for all-NaN input.
+    """
+    data = np.array([[np.nan, np.nan], [np.nan, np.nan]])
+    result = winsorize(data)
+    np.testing.assert_array_equal(result, data)
