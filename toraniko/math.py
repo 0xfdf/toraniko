@@ -134,7 +134,7 @@ def winsorize_xsection(
     return grouped
 
 
-def xsection_percentiles(
+def percentiles_xsection(
     target_col: str,
     over_col: str,
     lower_pct: float,
@@ -182,5 +182,17 @@ def exp_weights(window: int, half_life: int) -> np.ndarray:
     -------
     numpy array
     """
+    try:
+        assert isinstance(window, int)
+        if not window > 0:
+            raise ValueError("`window` must be a strictly positive integer")
+    except (AttributeError, AssertionError) as e:
+        raise TypeError("`window` must be an integer type") from e
+    try:
+        assert isinstance(half_life, int)
+        if not half_life > 0:
+            raise ValueError("`half_life` must be a strictly positive integer")
+    except (AttributeError, AssertionError) as e:
+        raise TypeError("`half_life` must be an integer type") from e
     decay = np.log(2) / half_life
     return np.exp(-decay * np.arange(window))[::-1]

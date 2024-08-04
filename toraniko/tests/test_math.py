@@ -4,7 +4,14 @@ import pytest
 import polars as pl
 import numpy as np
 from polars.testing import assert_frame_equal
-from toraniko.math import center_xsection, norm_xsection, winsorize, winsorize_xsection
+from toraniko.math import (
+    center_xsection,
+    exp_weights,
+    norm_xsection,
+    percentiles_xsection,
+    winsorize,
+    winsorize_xsection,
+)
 
 
 @pytest.fixture
@@ -632,3 +639,148 @@ def test_winsorize_xsection_with_nans(sample_df_with_nans):
     )
 
     assert_frame_equal(result, expected, check_exact=False)
+
+
+###
+# `xsection_percentiles`
+###
+
+
+def test_xsection_percentiles(sample_df):
+    """
+    Test basic functionality of xsection_percentiles.
+    """
+    result = sample_df.with_columns(percentiles_xsection("value1", "group", 0.25, 0.75).alias("result")).sort("group")
+
+    expected = pl.DataFrame(
+        {
+            "group": ["A", "A", "A", "B", "B", "B", "C", "C", "C"],
+            "value1": [1, 2, 10, 4, 5, 20, 7, 8, 30],
+            "result": [1.0, 2.0, 10.0, 4.0, 5.0, 20.0, 7.0, 8.0, 30.0],
+        }
+    )
+
+    pl.testing.assert_frame_equal(result.select("group", "value1", "result"), expected)
+
+
+def test_xsection_percentiles_with_nans(sample_df_with_nans):
+    """
+    Test xsection_percentiles with NaN values.
+    """
+    result = sample_df_with_nans.with_columns(percentiles_xsection("value1", "group", 0.25, 0.75).alias("result"))
+
+    expected = pl.DataFrame(
+        {
+            "group": ["A", "A", "A", "B", "B", "B", "C", "C", "C"],
+            "value1": [1.0, np.nan, 10.0, 4.0, 5.0, np.nan, 7.0, 8.0, 30.0],
+            "result": [1.0, np.nan, 10.0, 4.0, 5.0, np.nan, 7.0, 8.0, 30.0],
+        }
+    )
+
+    pl.testing.assert_frame_equal(result.select("group", "value1", "result"), expected)
+
+
+###
+# `exp_weights`
+###
+
+
+def test_exp_weights_basic():
+    """
+    Test basic functionality of exp_weights.
+    """
+    result = exp_weights(window=5, half_life=2)
+    expected = np.array([0.25, 0.35355339, 0.5, 0.70710678, 1.0])
+    np.testing.assert_array_almost_equal(result, expected, decimal=6)
+
+
+def test_exp_weights_window_1():
+    """
+    Test exp_weights with window of 1.
+    """
+    result = exp_weights(window=1, half_life=2)
+    expected = np.array([1.0])
+    np.testing.assert_array_almost_equal(result, expected)
+
+
+def test_exp_weights_half_life_1():
+    """
+    Test exp_weights with half_life of 1.
+    """
+    result = exp_weights(window=5, half_life=1)
+    expected = np.array([0.0625, 0.125, 0.25, 0.5, 1.0])
+    np.testing.assert_array_almost_equal(result, expected)
+
+
+def test_exp_weights_large_window():
+    """
+    Test exp_weights with a large window.
+    """
+    result = exp_weights(window=100, half_life=10)
+    assert len(result) == 100
+    assert result[-1] == 1.0
+    assert result[0] < result[-1]
+
+
+def test_exp_weights_decreasing():
+    """
+    Test that weights are decreasing from end to start.
+    """
+    result = exp_weights(window=10, half_life=3)
+    assert np.all(np.diff(result) > 0)
+
+
+def test_exp_weights_half_life():
+    """
+    Test that weights actually decay by half each half_life.
+    """
+    half_life = 5
+    window = 20
+    weights = exp_weights(window, half_life)
+    for i in range(0, window - half_life, half_life):
+        assert np.isclose(weights[i], 0.5 * weights[i + half_life], rtol=1e-5)
+
+
+def test_exp_weights_invalid_window():
+    """
+    Test exp_weights with invalid window value.
+    """
+    with pytest.raises(ValueError):
+        exp_weights(window=0, half_life=2)
+
+    with pytest.raises(ValueError):
+        exp_weights(window=-1, half_life=2)
+
+    with pytest.raises(TypeError):
+        exp_weights(window="window", half_life=2)
+
+    with pytest.raises(TypeError):
+        exp_weights(window=5.1, half_life=3)
+
+
+def test_exp_weights_invalid_half_life():
+    """
+    Test exp_weights with invalid half_life value.
+    """
+    with pytest.raises(ValueError):
+        exp_weights(window=5, half_life=0)
+
+    with pytest.raises(ValueError):
+        exp_weights(window=5, half_life=-1)
+
+    with pytest.raises(TypeError):
+        exp_weights(window=5, half_life="half_life")
+
+    with pytest.raises(TypeError):
+        exp_weights(window=5, half_life=3.2)
+
+
+def test_output():
+    """
+    Test with a specific input and output.
+    """
+    result = exp_weights(10, 10)
+    expected = np.array(
+        [0.53588673, 0.57434918, 0.61557221, 0.65975396, 0.70710678, 0.75785828, 0.8122524, 0.87055056, 0.93303299, 1.0]
+    )
+    assert np.testing.array_almost_equal(result, expected)
