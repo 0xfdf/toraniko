@@ -29,6 +29,9 @@ python = ">=3.10,<4.0"
 numpy = "~1.26.2"
 polars = "~0.20.3"
 
+[tool.poetry.dev-dependencies]
+pytest = "~7.4.4"
+
 [tool.poetry.urls]
 homepage = "https://github.com/0xfdf/toraniko"
 repository = "https://github.com/0xfdf/toraniko"
