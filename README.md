@@ -10,9 +10,9 @@ The only dependencies are numpy and polars. It supports market, sector and style
 
 ## Installation
 
-Clone the repo, navigate to the root directory of the project and run
+Using pip:
 
-`pip install .`
+`pip install toraniko`
 
 ## User Manual
 
