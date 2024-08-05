@@ -23,6 +23,8 @@ def fill_features(
     Polars LazyFrame containing the original columns with cleaned feature data
     """
     try:
+        # eagerly check all `features`, `sort_col`, `over_col` present: can't catch ColumNotFoundError in lazy context
+        assert all(c in df.columns for c in features + (sort_col, over_col))
         return (
             df.lazy()
             .with_columns([pl.col(f).cast(float).alias(f) for f in features])
@@ -45,7 +47,7 @@ def fill_features(
         )
     except AttributeError as e:
         raise TypeError("`df` must be a Polars DataFrame | LazyFrame, but it's missing required attributes") from e
-    except pl_exc.ColumnNotFoundError as e:
+    except AssertionError as e:
         raise ValueError(f"`df` must have all of {[over_col, sort_col] + list(features)} as columns") from e
 
 
@@ -109,6 +111,8 @@ def top_n_by_group(
     Polars LazyFrame containing original columns and optional filter column
     """
     try:
+        # eagerly check `rank_var`, `group_var` are present: we can't catch a ColumnNotFoundError in a lazy context
+        assert all(c in df.columns for c in (rank_var, group_var))
         rdf = (
             df.lazy()
             .sort(by=list(group_var) + [rank_var])
@@ -125,7 +129,7 @@ def top_n_by_group(
                     .drop("rank")
                     .sort(by=list(group_var) + [rank_var])
                 )
-    except pl_exc.ColumnNotFoundError as e:
+    except AssertionError as e:
         raise ValueError(f"`df` is missing one or more required columns: '{rank_var}' and '{group_var}'") from e
     except AttributeError as e:
         raise TypeError("`df` must be a Polars DataFrame or LazyFrame but is missing a required attribute") from e

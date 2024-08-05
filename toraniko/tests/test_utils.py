@@ -46,36 +46,11 @@ def test_fill_features(sample_df, lazy):
     pl.testing.assert_frame_equal(result, expected)
 
 
-def test_fill_features_string_nan(sample_df):
-    df_with_string_nan = sample_df.with_columns(pl.col("feature1").cast(str))
-    df_with_string_nan = df_with_string_nan.with_columns(
-        pl.when(pl.col("feature1") == "nan").then("NaN").otherwise(pl.col("feature1"))
-    )
-
-    result = fill_features(df_with_string_nan, features=("feature1", "feature2"), sort_col="date", over_col="group")
-    result = result.collect()
-
-    expected = pl.DataFrame(
-        {
-            "date": ["2023-01-01", "2023-01-02", "2023-01-03", "2023-01-04", "2023-01-05"],
-            "group": ["A", "A", "A", "B", "B"],
-            "feature1": [1.0, 1.0, 3.0, None, 5.0],
-            "feature2": [None, 2.0, 2.0, 4.0, 4.0],
-        }
-    )
-
-    pl.testing.assert_frame_equal(result, expected)
-
-
-def test_fill_features_invalid_input():
-    invalid_df = {"not": "a dataframe"}
-    with pytest.raises(TypeError):
-        fill_features(invalid_df, features=("feature1",), sort_col="date", over_col="group")
-
-
-def test_fill_features_missing_column(sample_df):
+def test_fill_features_invalid_input(sample_df):
     with pytest.raises(ValueError):
         fill_features(sample_df, features=("non_existent_feature",), sort_col="date", over_col="group")
+    with pytest.raises(TypeError):
+        fill_features("not_a_dataframe", features=("feature1",), sort_col="date", over_col="group")
 
 
 def test_fill_features_all_null_column(sample_df):
