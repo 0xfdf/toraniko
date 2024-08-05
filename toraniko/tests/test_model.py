@@ -1,6 +1,13 @@
+"""Tests functions in the model module."""
+
+import polars as pl
 import pytest
 import numpy as np
-from toraniko.model import _factor_returns
+from toraniko.model import _factor_returns, estimate_factor_returns
+
+###
+# `_factor_returns`
+###
 
 
 @pytest.fixture
@@ -115,3 +122,44 @@ def test_reproducibility(sample_data):
 
     assert np.allclose(fac_ret1, fac_ret2)
     assert np.allclose(epsilon1, epsilon2)
+
+
+###
+# `estimate_factor_returns`
+###
+
+
+def model_sample_data():
+    dates = ["2021-01-01", "2021-01-02", "2021-01-03"]
+    symbols = ["AAPL", "MSFT", "GOOGL"]
+    returns_data = {"date": dates * 3, "symbol": symbols * 3, "asset_returns": np.random.randn(9)}
+    mkt_cap_data = {"date": dates * 3, "symbol": symbols * 3, "market_cap": np.random.rand(9) * 1000}
+    sector_data = {"date": dates * 3, "symbol": symbols * 3, "Tech": [1, 0, 0] * 3, "Finance": [0, 1, 0] * 3}
+    style_data = {"date": dates * 3, "symbol": symbols * 3, "Value": [1, 0, 0] * 3, "Growth": [0, 1, 0] * 3}
+    return (pl.DataFrame(returns_data), pl.DataFrame(mkt_cap_data), pl.DataFrame(sector_data), pl.DataFrame(style_data))
+
+
+def test_estimate_factor_returns_normal():
+    returns_df, mkt_cap_df, sector_df, style_df = model_sample_data()
+    factor_returns, residual_returns = estimate_factor_returns(returns_df, mkt_cap_df, sector_df, style_df)
+    assert isinstance(factor_returns, pl.DataFrame)
+    assert isinstance(residual_returns, pl.DataFrame)
+    assert factor_returns.shape[0] == 3  # Number of dates
+    assert residual_returns.shape[0] == 3  # Number of dates
+
+
+def test_estimate_factor_returns_empty():
+    empty_df = pl.DataFrame()
+    with pytest.raises(ValueError):
+        estimate_factor_returns(empty_df, empty_df, empty_df, empty_df)
+
+
+def test_estimate_factor_returns_incorrect_types():
+    with pytest.raises(TypeError):
+        estimate_factor_returns("not_a_dataframe", "not_a_dataframe", "not_a_dataframe", "not_a_dataframe")
+
+
+def test_estimate_factor_returns_missing_columns():
+    returns_df, mkt_cap_df, sector_df, style_df = model_sample_data()
+    with pytest.raises(ValueError):
+        estimate_factor_returns(returns_df.drop("asset_returns"), mkt_cap_df, sector_df, style_df)
