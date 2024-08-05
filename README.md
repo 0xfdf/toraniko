@@ -176,3 +176,9 @@ fac_df, eps_df = estimate_factor_returns(returns_df, mkt_cap_df, sector_df, styl
 ```
 
 On an M1 MacBook, this estimates 10+ years of daily market, sector and style factor returns in under a minute.
+
+Here is a comparison of the model value factor out versus Barra's. Even on a relatively low quality data source (Yahoo Finance) and without significant effort in cleaning corporate actions, the results are comparable over a 10 year period:
+
+![val_factor](https://github.com/user-attachments/assets/28f41989-f802-4c2f-beed-1d2bda24a96d)
+
+![valu](https://github.com/user-attachments/assets/366f49a8-d7e7-46de-bb61-6f656393275a)
