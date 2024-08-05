@@ -783,4 +783,4 @@ def test_output():
     expected = np.array(
         [0.53588673, 0.57434918, 0.61557221, 0.65975396, 0.70710678, 0.75785828, 0.8122524, 0.87055056, 0.93303299, 1.0]
     )
-    assert np.testing.array_almost_equal(result, expected)
+    np.testing.assert_array_almost_equal(result, expected)
