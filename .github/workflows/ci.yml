@@ -5,6 +5,11 @@ on:
     branches:
       - main
 
+defaults:
+  run:
+    working-directory: toraniko
+    shell: bash
+
 jobs:
   test:
     runs-on: ubuntu-latest
