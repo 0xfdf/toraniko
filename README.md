@@ -6,4 +6,3 @@ Using this library, you can create new custom factors and estimate their returns
 
 The only dependencies are numpy and Polars. It supports market, sector and style factors; three styles are included: value, size and momentum. The functions you broadly want to have for constructing more style factors (or custom fundamental factors of any kind) are included.
 
-A writeup that walks through (and motivates) the development of the library can be found in this X article: https://x.com/0xfdf/status/1808351541943763163
