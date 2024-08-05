@@ -2,7 +2,6 @@
 
 import numpy as np
 import polars as pl
-import polars.exceptions as pl_exc
 
 
 def fill_features(
@@ -74,6 +73,8 @@ def smooth_features(
     Polars LazyFrame containing the original columns, with each of `features` replaced with moving average
     """
     try:
+        # eagerly check `over_col`, `sort_col`, `features` present: can't catch pl.ColumnNotFoundError in lazy context
+        assert all(c in df.columns for c in features + (over_col, sort_col))
         return (
             df.lazy()
             .sort(by=sort_col)
@@ -81,7 +82,7 @@ def smooth_features(
         )
     except AttributeError as e:
         raise TypeError("`df` must be a Polars DataFrame | LazyFrame, but it's missing required attributes") from e
-    except pl_exc.ColumnNotFoundError as e:
+    except AssertionError as e:
         raise ValueError(f"`df` must have all of {[over_col, sort_col] + list(features)} as columns") from e
 
 
@@ -112,7 +113,7 @@ def top_n_by_group(
     """
     try:
         # eagerly check `rank_var`, `group_var` are present: we can't catch a ColumnNotFoundError in a lazy context
-        assert all(c in df.columns for c in (rank_var, group_var))
+        assert all(c in df.columns for c in (rank_var,) + group_var)
         rdf = (
             df.lazy()
             .sort(by=list(group_var) + [rank_var])
