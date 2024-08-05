@@ -2,11 +2,12 @@
 
 import numpy as np
 import polars as pl
+import polars.exceptions as pl_exc
 
 from toraniko.math import (
     exp_weights,
     center_xsection,
-    xsection_percentiles,
+    percentiles_xsection,
     winsorize_xsection,
 )
 
@@ -47,9 +48,7 @@ def factor_mom(
         df = (
             returns_df.lazy()
             .sort(by="date")
-            .with_columns(
-                pl.col("asset_returns").shift(lag).over("symbol").alias("asset_returns")
-            )
+            .with_columns(pl.col("asset_returns").shift(lag).over("symbol").alias("asset_returns"))
             .with_columns(
                 pl.col("asset_returns")
                 .rolling_map(weighted_cumprod, window_size=trailing_days)
@@ -64,13 +63,9 @@ def factor_mom(
             center_xsection("mom_score", "date", True).alias("mom_score"),
         )
     except AttributeError as e:
-        raise TypeError(
-            "`returns_df` must be a Polars DataFrame | LazyFrame, but it's missing attributes"
-        ) from e
-    except pl.ColumnNotFoundError as e:
-        raise ValueError(
-            "`returns_df` must have 'date', 'symbol' and 'asset_returns' columns"
-        ) from e
+        raise TypeError("`returns_df` must be a Polars DataFrame | LazyFrame, but it's missing attributes") from e
+    except pl_exc.ColumnNotFoundError as e:
+        raise ValueError("`returns_df` must have 'date', 'symbol' and 'asset_returns' columns") from e
 
 
 def factor_sze(
@@ -99,26 +94,16 @@ def factor_sze(
                 "symbol",
                 (center_xsection("sze_score", "date", True)).alias("sze_score"),
             )
-            .with_columns(
-                xsection_percentiles(
-                    "sze_score", "date", lower_decile, upper_decile, 0.0
-                ).alias("sze_score")
-            )
+            .with_columns(percentiles_xsection("sze_score", "date", lower_decile, upper_decile, 0.0).alias("sze_score"))
             .select("date", "symbol", "sze_score")
         )
     except AttributeError as e:
-        raise TypeError(
-            "`mkt_cap_df` must be a Polars DataFrame or LazyFrame, but it's missing attributes"
-        ) from e
-    except pl.ColumnNotFoundError as e:
-        raise ValueError(
-            "`mkt_cap_df` must have 'date', 'symbol' and 'market_cap' columns"
-        ) from e
+        raise TypeError("`mkt_cap_df` must be a Polars DataFrame or LazyFrame, but it's missing attributes") from e
+    except pl_exc.ColumnNotFoundError as e:
+        raise ValueError("`mkt_cap_df` must have 'date', 'symbol' and 'market_cap' columns") from e
 
 
-def factor_val(
-    value_df: pl.DataFrame | pl.LazyFrame, winsorize_features: float | None = None
-) -> pl.LazyFrame:
+def factor_val(value_df: pl.DataFrame | pl.LazyFrame, winsorize_features: float | None = None) -> pl.LazyFrame:
     """Estimate rolling symbol by symbol value factor scores using price ratios.
 
     Parameters
@@ -132,9 +117,7 @@ def factor_val(
     """
     try:
         if winsorize_features is not None:
-            value_df = winsorize_xsection(
-                value_df, ("book_price", "sales_price", "cf_price"), "date"
-            )
+            value_df = winsorize_xsection(value_df, ("book_price", "sales_price", "cf_price"), "date")
         return (
             value_df.lazy()
             .with_columns(
@@ -161,10 +144,8 @@ def factor_val(
             )
         )
     except AttributeError as e:
-        raise TypeError(
-            "`value_df` must be a Polars DataFrame or LazyFrame, but it's missing attributes"
-        ) from e
-    except pl.ColumnNotFoundError as e:
+        raise TypeError("`value_df` must be a Polars DataFrame or LazyFrame, but it's missing attributes") from e
+    except pl_exc.ColumnNotFoundError as e:
         raise ValueError(
             "`value_df` must have 'date', 'symbol', 'book_price', 'sales_price' and 'fcf_price' columns"
         ) from e

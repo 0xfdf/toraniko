@@ -2,6 +2,7 @@
 
 import numpy as np
 import polars as pl
+import polars.exceptions as pl_exc
 
 from toraniko.math import winsorize
 
@@ -42,9 +43,7 @@ def _factor_returns(
     # Change of variables to add the constraint
     B_sector = beta_sector @ R_sector
 
-    V_sector, _, _, _ = np.linalg.lstsq(
-        B_sector.T @ W @ B_sector, B_sector.T @ W, rcond=None
-    )
+    V_sector, _, _, _ = np.linalg.lstsq(B_sector.T @ W @ B_sector, B_sector.T @ W, rcond=None)
     # Change of variables to recover all sectors
     g = V_sector @ returns
     fac_ret_sector = R_sector @ g
@@ -52,9 +51,7 @@ def _factor_returns(
     sector_resid_returns = returns - (B_sector @ g)
 
     # Estimate style factor returns without constraints
-    V_style, _, _, _ = np.linalg.lstsq(
-        style_scores.T @ W @ style_scores, style_scores.T @ W, rcond=None
-    )
+    V_style, _, _, _ = np.linalg.lstsq(style_scores.T @ W @ style_scores, style_scores.T @ W, rcond=None)
     if residualize_styles:
         fac_ret_style = V_style @ sector_resid_returns
     else:
@@ -96,23 +93,15 @@ def estimate_factor_returns(
     try:
         sectors = sorted(sector_df.select(pl.exclude("date", "symbol")).columns)
     except AttributeError as e:
-        raise TypeError(
-            "`sector_df` must be a Polars DataFrame, but it's missing required attributes"
-        ) from e
-    except pl.ColumnNotFoundError as e:
-        raise ValueError(
-            "`sector_df` must have columns for 'date' and 'symbol' in addition to each sector"
-        ) from e
+        raise TypeError("`sector_df` must be a Polars DataFrame, but it's missing required attributes") from e
+    except pl_exc.ColumnNotFoundError as e:
+        raise ValueError("`sector_df` must have columns for 'date' and 'symbol' in addition to each sector") from e
     try:
         styles = sorted(style_df.select(pl.exclude("date", "symbol")).columns)
     except AttributeError as e:
-        raise TypeError(
-            "`style_df` must be a Polars DataFrame, but it's missing required attributes"
-        ) from e
-    except pl.ColumnNotFoundError as e:
-        raise ValueError(
-            "`style_df` must have columns for 'date' and 'symbol' in addition to each style"
-        ) from e
+        raise TypeError("`style_df` must be a Polars DataFrame, but it's missing required attributes") from e
+    except pl_exc.ColumnNotFoundError as e:
+        raise ValueError("`style_df` must have columns for 'date' and 'symbol' in addition to each style") from e
     try:
         returns_df = (
             returns_df.join(mkt_cap_df, on=["date", "symbol"])
@@ -140,7 +129,7 @@ def estimate_factor_returns(
         raise TypeError(
             "`returns_df` and `mkt_cap_df` must be Polars DataFrames, but there are missing attributes"
         ) from e
-    except pl.ColumnNotFoundError as e:
+    except pl_exc.ColumnNotFoundError as e:
         raise ValueError(
             "`returns_df` must have columns 'date', 'symbol' and 'asset_returns'; "
             "`mkt_cap_df` must have 'date', 'symbol' and 'market_cap' columns"
