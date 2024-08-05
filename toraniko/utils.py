@@ -2,6 +2,7 @@
 
 import numpy as np
 import polars as pl
+import polars.exceptions as pl_exc
 
 
 def fill_features(
@@ -44,7 +45,7 @@ def fill_features(
         )
     except AttributeError as e:
         raise TypeError("`df` must be a Polars DataFrame | LazyFrame, but it's missing required attributes") from e
-    except pl.ColumnNotFoundError as e:
+    except pl_exc.ColumnNotFoundError as e:
         raise ValueError(f"`df` must have all of {[over_col, sort_col] + list(features)} as columns") from e
 
 
@@ -78,7 +79,7 @@ def smooth_features(
         )
     except AttributeError as e:
         raise TypeError("`df` must be a Polars DataFrame | LazyFrame, but it's missing required attributes") from e
-    except pl.ColumnNotFoundError as e:
+    except pl_exc.ColumnNotFoundError as e:
         raise ValueError(f"`df` must have all of {[over_col, sort_col] + list(features)} as columns") from e
 
 
@@ -124,7 +125,7 @@ def top_n_by_group(
                     .drop("rank")
                     .sort(by=list(group_var) + [rank_var])
                 )
-    except pl.ColumnNotFoundError as e:
+    except pl_exc.ColumnNotFoundError as e:
         raise ValueError(f"`df` is missing one or more required columns: '{rank_var}' and '{group_var}'") from e
     except AttributeError as e:
         raise TypeError("`df` must be a Polars DataFrame or LazyFrame but is missing a required attribute") from e

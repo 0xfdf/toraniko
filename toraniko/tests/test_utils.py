@@ -3,8 +3,13 @@
 import pytest
 import polars as pl
 import numpy as np
+from polars.testing import assert_frame_equal
 
 from toraniko.utils import fill_features
+
+###
+# `fill_features`
+###
 
 
 @pytest.fixture
@@ -19,30 +24,16 @@ def sample_df():
     )
 
 
-def test_fill_features(sample_df):
-    result = fill_features(sample_df, features=("feature1", "feature2"), sort_col="date", over_col="group").sort(
-        "group"
-    )
-    result = result.collect()
-
-    expected = pl.DataFrame(
-        {
-            "date": ["2023-01-01", "2023-01-02", "2023-01-03", "2023-01-04", "2023-01-05"],
-            "group": ["A", "A", "A", "B", "B"],
-            "feature1": [1.0, 1.0, 3.0, np.nan, 5.0],
-            "feature2": [np.nan, 2.0, 2.0, 4.0, 4.0],
-        }
+@pytest.mark.parametrize("lazy", [True, False])
+def test_fill_features(sample_df, lazy):
+    if lazy:
+        inp = sample_df.lazy()
+    else:
+        inp = sample_df
+    result = (
+        fill_features(inp, features=("feature1", "feature2"), sort_col="date", over_col="group").sort("group").collect()
     )
 
-    pl.testing.assert_frame_equal(result, expected)
-
-
-def test_fill_features_lazyframe_input(sample_df):
-    lazy_df = sample_df.lazy()
-    result = fill_features(lazy_df, features=("feature1", "feature2"), sort_col="date", over_col="group")
-    assert isinstance(result, pl.LazyFrame)
-
-    result = result.collect()
     expected = pl.DataFrame(
         {
             "date": ["2023-01-01", "2023-01-02", "2023-01-03", "2023-01-04", "2023-01-05"],

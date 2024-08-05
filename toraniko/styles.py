@@ -2,6 +2,7 @@
 
 import numpy as np
 import polars as pl
+import polars.exceptions as pl_exc
 
 from toraniko.math import (
     exp_weights,
@@ -63,7 +64,7 @@ def factor_mom(
         )
     except AttributeError as e:
         raise TypeError("`returns_df` must be a Polars DataFrame | LazyFrame, but it's missing attributes") from e
-    except pl.ColumnNotFoundError as e:
+    except pl_exc.ColumnNotFoundError as e:
         raise ValueError("`returns_df` must have 'date', 'symbol' and 'asset_returns' columns") from e
 
 
@@ -98,7 +99,7 @@ def factor_sze(
         )
     except AttributeError as e:
         raise TypeError("`mkt_cap_df` must be a Polars DataFrame or LazyFrame, but it's missing attributes") from e
-    except pl.ColumnNotFoundError as e:
+    except pl_exc.ColumnNotFoundError as e:
         raise ValueError("`mkt_cap_df` must have 'date', 'symbol' and 'market_cap' columns") from e
 
 
@@ -144,7 +145,7 @@ def factor_val(value_df: pl.DataFrame | pl.LazyFrame, winsorize_features: float 
         )
     except AttributeError as e:
         raise TypeError("`value_df` must be a Polars DataFrame or LazyFrame, but it's missing attributes") from e
-    except pl.ColumnNotFoundError as e:
+    except pl_exc.ColumnNotFoundError as e:
         raise ValueError(
             "`value_df` must have 'date', 'symbol', 'book_price', 'sales_price' and 'fcf_price' columns"
         ) from e
