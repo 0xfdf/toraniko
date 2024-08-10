@@ -4,7 +4,7 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
 name = "toraniko"
-version = "1.1.0"
+version = "1.1.2"
 description = "A multi-factor equity risk model for quantitative trading."
 authors = ["0xfdf <0xfdf@implies.com>"]
 maintainers = ["0xfdf <0xfdf@implies.com>"]
