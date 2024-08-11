@@ -5,4 +5,4 @@ with open("requirements.txt", "r") as fh:
     for line in fh:
         requirements.append(line.strip())
 
-setup(name="toraniko", version="1.1.2", packages=find_packages(), install_requires=requirements)
+setup(name="toraniko", version="1.2.0", packages=find_packages(), install_requires=requirements)
