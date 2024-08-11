@@ -7,7 +7,7 @@ import polars.exceptions as pl_exc
 from toraniko.math import winsorize
 
 
-def _factor_returns(
+def factor_returns_cs(
     returns: np.ndarray,
     mkt_caps: np.ndarray,
     sector_scores: np.ndarray,
@@ -109,7 +109,7 @@ def estimate_factor_returns(
     mkt_cap_col: str = "market_cap",
     symbol_col: str = "symbol",
     date_col: str = "date",
-) -> tuple[pl.DataFrame, pl.DataFrame] | pl.DataFrame:
+) -> tuple[pl.DataFrame, pl.DataFrame]:
     """Estimate factor and residual returns across all time periods using input asset factor scores.
 
     See the documentation under `_factor_returns` for a complete mathematical specification of the model and
@@ -135,7 +135,6 @@ def estimate_factor_returns(
     -------
     tuple of Polars DataFrames melted by date: (factor returns, residual returns)
     """
-    returns, residuals = [], []
     try:
         sectors = sorted(sector_df.select(pl.exclude(date_col, symbol_col)).columns)
     except AttributeError as e:
@@ -152,39 +151,54 @@ def estimate_factor_returns(
         raise ValueError(
             f"`style_df` must have columns for '{date_col}' and '{symbol_col}' in addition to each style"
         ) from e
-    try:
-        returns_df = (
-            returns_df.join(mkt_cap_df, on=[date_col, symbol_col])
-            .join(sector_df, on=[date_col, symbol_col])
-            .join(style_df, on=[date_col, symbol_col])
-        )
-        dates = returns_df[date_col].unique().to_list()
-        # TODO: improve performance by using Polars `.map_groups`
-        for dt in dates:
-            ddf = returns_df.filter(pl.col(date_col) == dt).sort(symbol_col)
-            r = ddf[asset_returns_col].to_numpy()
-            if winsor_factor is not None:
-                r = winsorize(r, winsor_factor)
-            f, e = _factor_returns(
-                r,
-                ddf[mkt_cap_col].to_numpy(),
-                ddf.select(sectors).to_numpy(),
-                ddf.select(styles).to_numpy(),
-                residualize_styles,
+    else:
+        try:
+            returns_df = (
+                returns_df.join(mkt_cap_df, on=[date_col, symbol_col])
+                .join(sector_df, on=[date_col, symbol_col])
+                .join(style_df, on=[date_col, symbol_col])
             )
-            returns.append(f)
-            residuals.append(dict(zip(ddf[symbol_col].to_list(), e)))
-    except AttributeError as e:
-        raise TypeError(
-            "`returns_df` and `mkt_cap_df` must be Polars DataFrames, but there are missing attributes"
-        ) from e
-    except pl_exc.ColumnNotFoundError as e:
-        raise ValueError(
-            f"`returns_df` must have columns '{date_col}', '{symbol_col}' and '{asset_returns_col}'; "
-            f"`mkt_cap_df` must have '{date_col}', '{symbol_col}' and '{mkt_cap_col}' columns"
-        ) from e
-    ret_df = pl.DataFrame(np.array(returns), schema=["market"] + sectors + styles).with_columns(
-        pl.Series(dates).alias(date_col)
-    )
-    eps_df = pl.DataFrame(residuals).with_columns(pl.Series(dates).alias(date_col))
-    return ret_df, eps_df
+            if winsor_factor is not None:
+
+                def _estimate_factor_returns(data):
+                    """"""
+                    dt = data[date_col].head(1).item()
+                    r = winsorize(data[asset_returns_col].to_numpy())
+                    fac, eps = factor_returns_cs(
+                        r,
+                        data[mkt_cap_col].to_numpy(),
+                        data.select(sectors).to_numpy(),
+                        data.select(styles).to_numpy(),
+                        residualize_styles,
+                    )
+                    return pl.DataFrame(fac.reshape(1, -1), schema=["market"] + sectors + styles).with_columns(
+                        pl.lit(dt).alias("date")
+                    )
+
+            else:
+
+                def _estimate_factor_returns(data):
+                    """"""
+                    dt = data[date_col].head(1).item()
+                    fac, eps = factor_returns_cs(
+                        data[asset_returns_col].to_numpy(),
+                        data[mkt_cap_col].to_numpy(),
+                        data.select(sectors).to_numpy(),
+                        data.select(styles).to_numpy(),
+                        residualize_styles,
+                    )
+                    return pl.DataFrame(fac.reshape(1, -1), schema=["market"] + sectors + styles).with_columns(
+                        pl.lit(dt).alias("date")
+                    )
+
+            # eps_df = pl.DataFrame(residuals).with_columns(pl.Series(dates).alias(date_col))
+            return returns_df.group_by(date_col).map_groups(_estimate_factor_returns)
+        except AttributeError as e:
+            raise TypeError(
+                "`returns_df` and `mkt_cap_df` must be Polars DataFrames, but there are missing attributes"
+            ) from e
+        except pl_exc.ColumnNotFoundError as e:
+            raise ValueError(
+                f"`returns_df` must have columns '{date_col}', '{symbol_col}' and '{asset_returns_col}'; "
+                f"`mkt_cap_df` must have '{date_col}', '{symbol_col}' and '{mkt_cap_col}' columns"
+            ) from e

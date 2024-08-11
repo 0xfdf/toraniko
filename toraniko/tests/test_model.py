@@ -3,7 +3,7 @@
 import polars as pl
 import pytest
 import numpy as np
-from toraniko.model import _factor_returns, estimate_factor_returns
+from toraniko.model import factor_returns_cs, estimate_factor_returns
 
 ###
 # `_factor_returns`
@@ -27,7 +27,7 @@ def sample_data():
 
 def test_output_shape_and_values(sample_data):
     returns, mkt_caps, sector_scores, style_scores = sample_data
-    fac_ret, epsilon = _factor_returns(returns, mkt_caps, sector_scores, style_scores, True)
+    fac_ret, epsilon = factor_returns_cs(returns, mkt_caps, sector_scores, style_scores, True)
 
     assert fac_ret.shape == (1 + sector_scores.shape[1] + style_scores.shape[1], 1)
     assert epsilon.shape == returns.shape
@@ -75,15 +75,15 @@ def test_residualize_styles(sample_data):
 
     # if we residualize the styles we should obtain different returns out of the function
 
-    fac_ret_res, _ = _factor_returns(returns, mkt_caps, sector_scores, style_scores, True)
-    fac_ret_non_res, _ = _factor_returns(returns, mkt_caps, sector_scores, style_scores, False)
+    fac_ret_res, _ = factor_returns_cs(returns, mkt_caps, sector_scores, style_scores, True)
+    fac_ret_non_res, _ = factor_returns_cs(returns, mkt_caps, sector_scores, style_scores, False)
 
     assert not np.allclose(fac_ret_res, fac_ret_non_res)
 
 
 def test_sector_constraint(sample_data):
     returns, mkt_caps, sector_scores, style_scores = sample_data
-    fac_ret, _ = _factor_returns(returns, mkt_caps, sector_scores, style_scores, True)
+    fac_ret, _ = factor_returns_cs(returns, mkt_caps, sector_scores, style_scores, True)
 
     sector_returns = fac_ret[1 : sector_scores.shape[1] + 1]
     assert np.isclose(np.sum(sector_returns), 0, atol=1e-10)
@@ -99,7 +99,7 @@ def test_zero_returns():
     sector_scores = np.random.randint(0, 2, size=(n_assets, n_sectors))
     style_scores = np.random.randn(n_assets, n_styles)
 
-    fac_ret, epsilon = _factor_returns(returns, mkt_caps, sector_scores, style_scores, True)
+    fac_ret, epsilon = factor_returns_cs(returns, mkt_caps, sector_scores, style_scores, True)
 
     assert np.allclose(fac_ret, 0)
     assert np.allclose(epsilon, 0)
@@ -108,8 +108,8 @@ def test_zero_returns():
 def test_market_cap_weighting(sample_data):
     returns, mkt_caps, sector_scores, style_scores = sample_data
 
-    fac_ret1, _ = _factor_returns(returns, mkt_caps, sector_scores, style_scores, True)
-    fac_ret2, _ = _factor_returns(returns, np.ones_like(mkt_caps), sector_scores, style_scores, True)
+    fac_ret1, _ = factor_returns_cs(returns, mkt_caps, sector_scores, style_scores, True)
+    fac_ret2, _ = factor_returns_cs(returns, np.ones_like(mkt_caps), sector_scores, style_scores, True)
 
     assert not np.allclose(fac_ret1, fac_ret2)
 
@@ -117,8 +117,8 @@ def test_market_cap_weighting(sample_data):
 def test_reproducibility(sample_data):
     returns, mkt_caps, sector_scores, style_scores = sample_data
 
-    fac_ret1, epsilon1 = _factor_returns(returns, mkt_caps, sector_scores, style_scores, True)
-    fac_ret2, epsilon2 = _factor_returns(returns, mkt_caps, sector_scores, style_scores, True)
+    fac_ret1, epsilon1 = factor_returns_cs(returns, mkt_caps, sector_scores, style_scores, True)
+    fac_ret2, epsilon2 = factor_returns_cs(returns, mkt_caps, sector_scores, style_scores, True)
 
     assert np.allclose(fac_ret1, fac_ret2)
     assert np.allclose(epsilon1, epsilon2)
