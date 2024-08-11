@@ -94,6 +94,12 @@ def factor_mom(
             df = df.with_columns(
                 center_xsection(score_col, date_col, standardize=standardize).alias(score_col),
             )
+        else:
+            if standardize:
+                logger.warning(
+                    "`standardize` is not applied if `center=False` is passed. Skipping standardization; "
+                    "please check your arguments"
+                )
         return df.select(date_col, symbol_col, score_col)
     except AttributeError as e:
         raise TypeError("`returns_df` must be a Polars DataFrame | LazyFrame, but it's missing attributes") from e
@@ -157,6 +163,12 @@ def factor_sze(
             )
         if center:
             df = df.with_columns((center_xsection(score_col, date_col, standardize=standardize)).alias(score_col) * -1)
+        else:
+            if standardize:
+                logger.warning(
+                    "`standardize` is not applied if `center=False` is passed. Skipping standardization; "
+                    "please check your arguments"
+                )
         return df.select(date_col, symbol_col, score_col)
     except AttributeError as e:
         raise TypeError("`mkt_cap_df` must be a Polars DataFrame or LazyFrame, but it's missing attributes") from e
@@ -229,6 +241,12 @@ def factor_val(
         )
         if center:
             df = df.with_columns(center_xsection(score_col, date_col, standardize=standardize).alias(score_col))
+        else:
+            if standardize:
+                logger.warning(
+                    "`standardize` is not applied if `center=False` is passed. Skipping standardization; "
+                    "please check your arguments"
+                )
         return df.select(
             date_col,
             symbol_col,

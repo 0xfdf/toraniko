@@ -6,7 +6,7 @@ import numpy as np
 from toraniko.model import factor_returns_cs, estimate_factor_returns
 
 ###
-# `_factor_returns`
+# `factor_returns_cs`
 ###
 
 
@@ -134,8 +134,20 @@ def model_sample_data():
     symbols = ["AAPL", "MSFT", "GOOGL"]
     returns_data = {"date": dates * 3, "symbol": symbols * 3, "asset_returns": np.random.randn(9)}
     mkt_cap_data = {"date": dates * 3, "symbol": symbols * 3, "market_cap": np.random.rand(9) * 1000}
-    sector_data = {"date": dates * 3, "symbol": symbols * 3, "Tech": [1, 0, 0] * 3, "Finance": [0, 1, 0] * 3}
-    style_data = {"date": dates * 3, "symbol": symbols * 3, "Value": [1, 0, 0] * 3, "Growth": [0, 1, 0] * 3}
+    sector_data = {
+        "date": dates * 3,
+        "symbol": symbols * 3,
+        "Tech": [1, 0, 0] * 3,
+        "Finance": [0, 1, 0] * 3,
+        "Consumer": [0, 0, 1] * 3,
+    }
+    style_data = {
+        "date": dates * 3,
+        "symbol": symbols * 3,
+        "Value": [1.2, 1.3, 1.4] * 3,
+        "Growth": [0.8, 0.9, 1.0] * 3,
+        "Size": [1.6, 2.5, -0.6] * 3,
+    }
     return (pl.DataFrame(returns_data), pl.DataFrame(mkt_cap_data), pl.DataFrame(sector_data), pl.DataFrame(style_data))
 
 
@@ -145,7 +157,7 @@ def test_estimate_factor_returns_normal():
     assert isinstance(factor_returns, pl.DataFrame)
     assert isinstance(residual_returns, pl.DataFrame)
     assert factor_returns.shape[0] == 3  # Number of dates
-    assert residual_returns.shape[0] == 3  # Number of dates
+    assert residual_returns.shape[0] == 3 * 3  # Number of symbols * number of dates
 
 
 def test_estimate_factor_returns_empty():
