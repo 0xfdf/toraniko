@@ -1,5 +1,7 @@
 """Style factor implementations."""
 
+import logging
+
 import numpy as np
 import polars as pl
 import polars.exceptions as pl_exc
@@ -7,8 +9,11 @@ import polars.exceptions as pl_exc
 from toraniko.math import (
     exp_weights,
     center_xsection,
+    percentiles_xsection,
     winsorize_xsection,
 )
+
+logger = logging.getLogger(__name__)
 
 ###
 # NB: These functions do not try to handle NaN or null resilience for you, nor do they make allowances
@@ -49,7 +54,7 @@ def factor_mom(
 
     Parameters
     ----------
-    returns_df: Polars DataFrame containing columns: | date | symbol | asset_returns |
+    returns_df: Polars DataFrame containing columns: | `date_col` | `symbol_col` | `asset_returns_col` |
     trailing_days: int look back period over which to measure momentum
     half_life: int decay rate for exponential weighting, in days
     lag: int number of days to lag the current day's return observation (20 trading days is one month)
@@ -100,6 +105,8 @@ def factor_mom(
 
 def factor_sze(
     mkt_cap_df: pl.DataFrame | pl.LazyFrame,
+    lower_decile: float | None = None,
+    upper_decile: float | None = None,
     center: bool = True,
     standardize: bool = True,
     mkt_cap_col: str = "market_cap",
@@ -113,11 +120,17 @@ def factor_sze(
     to their rough order of magnitude, which is the salient feature we care most about. Given that we want to capture
     the risk premium of smaller factors over larger ones, we also multiply by -1.
 
+    You may also optionally implement Fama-French-like "hi - lo" behavior using the `lower_decile` and `upper_decile`
+    arguments. If you pass e.g. `lower_decile=0.3` and `upper_decile=0.7`, only values less than the 30th percentile
+    and greater than the 70th percentile will be considered for the factor. This is supported for backwards
+    compatibility, but not recommended.
+
     In practice, you should center and standardize your factor scores unless you have a very good reason not to.
 
     Parameters
     ----------
-    mkt_cap_df: Polars DataFrame containing columns: | date | symbol | market_cap |
+    mkt_cap_df: Polars DataFrame containing columns: | `date_col` | `symbol_col` | `mkt_cap_col` |
+    lower_decile: float value
     center: boolean indicating whether to center the final size scores before returning
     standardize: boolean indicating whether to standardize the final size scores after centering
     mkt_cap_col: str name of the column we expect to find the market cap values in, defaults to "market_cap"
@@ -131,6 +144,17 @@ def factor_sze(
     """
     try:
         df = mkt_cap_df.lazy().with_columns(pl.col(mkt_cap_col).log().alias(score_col))
+        if lower_decile is not None and upper_decile is not None:
+            df = df.with_columns(
+                percentiles_xsection(
+                    score_col, date_col, lower_pct=lower_decile, upper_pct=upper_decile, fill_val=0.0
+                ).alias(score_col)
+            )
+        if (lower_decile is not None and upper_decile is None) or (lower_decile is None and upper_decile is not None):
+            logger.warning(
+                "`lower_decile` and `upper_decile` must both be float values to apply cross-sectional percentile limits, "
+                "but one is None. Skipping cross-sectional percentile limiting; please review arguments"
+            )
         if center:
             df = df.with_columns((center_xsection(score_col, date_col, standardize=standardize)).alias(score_col) * -1)
         return df.select(date_col, symbol_col, score_col)
@@ -165,7 +189,7 @@ def factor_val(
 
     Parameters
     ----------
-    value_df: Polars DataFrame containing columns: | date | symbol | book_price | sales_price | cf_price
+    value_df: Polars DataFrame containing columns: | `date_col` | `symbol_col` | `bp_col` | `sp_col` | `cf_col`
     winsor_factor: optional float indicating what percentile to symmetrically winsorize features at, if desired
     center: boolean indicating whether to center the final value scores before returning
     standardize: boolean indicating whether to standardize the final value scores after centering
@@ -204,7 +228,7 @@ def factor_val(
             )
         )
         if center:
-            df = df.with_columns(center_xsection(score_col, date_col, standardize=True).alias(score_col))
+            df = df.with_columns(center_xsection(score_col, date_col, standardize=standardize).alias(score_col))
         return df.select(
             date_col,
             symbol_col,

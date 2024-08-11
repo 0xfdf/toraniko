@@ -109,6 +109,8 @@ def estimate_factor_returns(
     mkt_cap_col: str = "market_cap",
     symbol_col: str = "symbol",
     date_col: str = "date",
+    mkt_factor_col: str = "market",
+    res_ret_col: str = "res_asset_returns",
 ) -> tuple[pl.DataFrame, pl.DataFrame]:
     """Estimate factor and residual returns across all time periods using input asset factor scores.
 
@@ -130,6 +132,8 @@ def estimate_factor_returns(
     mkt_cap_col: str name of the column we expect to find market cap values in, defaults to "market_cap"
     symbol_col: str name of the column we expect to find symbol names in, defaults to "symbol"
     date_col: str name of the column we expect to find time periods in, defaults to "date"
+    mkt_factor_col: str name to use for the column containing returned market factor, defaults to "market"
+    res_ret_col: str name to use for the column containing asset residual returns, defaults to "res_asset_returns"
 
     Returns
     -------
@@ -158,11 +162,11 @@ def estimate_factor_returns(
                 .join(sector_df, on=[date_col, symbol_col])
                 .join(style_df, on=[date_col, symbol_col])
             )
+            # split the conditional winsorization branch into two functions, so we don't have a conditional
+            # needlessly evaluated on each iteration of the `.map_groups`
             if winsor_factor is not None:
 
                 def _estimate_factor_returns(data):
-                    """"""
-                    dt = data[date_col].head(1).item()
                     r = winsorize(data[asset_returns_col].to_numpy())
                     fac, eps = factor_returns_cs(
                         r,
@@ -171,15 +175,19 @@ def estimate_factor_returns(
                         data.select(styles).to_numpy(),
                         residualize_styles,
                     )
-                    return pl.DataFrame(fac.reshape(1, -1), schema=["market"] + sectors + styles).with_columns(
-                        pl.lit(dt).alias("date")
+                    return (
+                        # reshape so we get a row vector instead of a column vector for the DataFrame
+                        pl.DataFrame(fac.reshape(1, -1), schema=[mkt_factor_col] + sectors + styles)
+                        # add back the time period group to disambiguate
+                        .with_columns(pl.lit(data[date_col].head(1).item()).cast(pl.Date).alias(date_col)).with_columns(
+                            pl.lit(eps.tolist()).alias(res_ret_col),
+                            pl.lit(data[symbol_col].to_list()).alias(symbol_col),
+                        )
                     )
 
             else:
 
                 def _estimate_factor_returns(data):
-                    """"""
-                    dt = data[date_col].head(1).item()
                     fac, eps = factor_returns_cs(
                         data[asset_returns_col].to_numpy(),
                         data[mkt_cap_col].to_numpy(),
@@ -187,12 +195,19 @@ def estimate_factor_returns(
                         data.select(styles).to_numpy(),
                         residualize_styles,
                     )
-                    return pl.DataFrame(fac.reshape(1, -1), schema=["market"] + sectors + styles).with_columns(
-                        pl.lit(dt).alias("date")
+                    return (
+                        # reshape so we get a row vector instead of a column vector for the DataFrame
+                        pl.DataFrame(fac.reshape(1, -1), schema=[mkt_factor_col] + sectors + styles)
+                        # add back the time period group to disambiguate
+                        .with_columns(pl.lit(data[date_col].head(1).item()).cast(pl.Date).alias(date_col)).with_columns(
+                            pl.lit(eps.tolist()).alias(res_ret_col),
+                            pl.lit(data[symbol_col].to_list()).alias(symbol_col),
+                        )
                     )
 
-            # eps_df = pl.DataFrame(residuals).with_columns(pl.Series(dates).alias(date_col))
-            return returns_df.group_by(date_col).map_groups(_estimate_factor_returns)
+            fac_df = returns_df.group_by(date_col).map_groups(_estimate_factor_returns)
+            eps_df = fac_df[[date_col, symbol_col, res_ret_col]].explode([symbol_col, res_ret_col])
+            return fac_df.drop([symbol_col, res_ret_col]), eps_df
         except AttributeError as e:
             raise TypeError(
                 "`returns_df` and `mkt_cap_df` must be Polars DataFrames, but there are missing attributes"
