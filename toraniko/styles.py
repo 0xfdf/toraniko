@@ -52,6 +52,9 @@ def factor_mom(
     lag: int number of days to lag the current day's return observation (20 trading days is one month)
     winsor_factor: optional float symmetric percentile at which to winsorize, e.g. 0.01 is 1st and 99th percentiles
     center: boolean indicating whether to center the final momentum scores before returning
+    asset_returns_col: str name of the column we expect to find the asset returns value in, defaults to "asset_returns"
+    symbol_col: str name of the column we expect to find the symbol names in, defaults to "symbol"
+    date_col: str name of the column we expect to find the dates (or datetimes) in, defaults to "date"
 
     Returns
     -------
@@ -114,6 +117,9 @@ def factor_sze(
     lower_decile: optional float indicating the lower percentile, if any, to disregard values below
     upper_decile: optional float indicating the upper percentile, if any, to disregard values above
     center: boolean indicating whether to center the scores prior to percentile adjustment
+    mkt_cap_col: str name of the column we expect to find the market cap values in, defaults to "market_cap"
+    symbol_col: str name of the column we expect to find the symbol names in, defaults to "symbol"
+    date_col: str name of the column we expect to find the dates (or datetimes) in, defaults to "date"
 
     Returns
     -------
@@ -161,6 +167,11 @@ def factor_val(
     ----------
     value_df: Polars DataFrame containing columns: | date | symbol | book_price | sales_price | cf_price
     winsor_factor: optional float indicating what percentile to symmetrically winsorize features at, if desired
+    bp_col: str name of the column we expect to find the book-price ratio values in, defaults to "book_price"
+    sp_col: str name of the column we expect to find the sales-price ratio values in, defaults to "sales_price"
+    cf_col: str name of the column we expect to find the cash flow-price ratio values in, defaults to "cf_price"
+    symbol_col: str name of the column we expect to find the symbol names in, defaults to "symbol"
+    date_col: str name of the column we expect to find the dates (or datetimes) in, defaults to "date"
 
     Returns
     -------
