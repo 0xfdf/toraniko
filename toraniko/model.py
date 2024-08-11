@@ -16,6 +16,40 @@ def _factor_returns(
 ) -> tuple[np.ndarray, np.ndarray]:
     """Estimate market, sector, style and residual asset returns for one time period, robust to rank deficiency.
 
+    The risk model formulation is:
+
+        r_t = alpha_t + Beta_t x f_t + epsilon_t
+
+    where
+        - r_t is an n-vector of all assets' respective excess returns at time period t,
+        - alpha_t is an n-vector of the expected returns of each asset,
+        - Beta_t is an n x m matrix of factor scores,
+        - f_t is an m-vector consisting of the returns of each factor at time period t,
+        - epsilon_t is an n-vector of the error, or idiosyncratic returns
+
+    This function is evaluated once for each time period t. With r_t and Beta_t known (parameterized by `returns` and
+    [1, `sector_scores`, `style_scores`] respectively), we seek to estimate f_t. Our problem to solve is:
+
+        min(r_t - Beta_t x f_t) Sigma^-1 (r_t - Beta_t x f_t)
+
+    where Sigma^-1 is the inverse of the population idiosyncratic covariance of the asset returns. Given we don't know
+    the true population idiosyncratic covariance, we instead take the convention established by Barra/Axioma and use
+    the square root of the market caps, W:
+
+        min(r_t - Beta_t x f_t) Sigma^-1 (r_t - Beta_t x f_t)
+
+    Beta_t is actually [Beta_sector, Beta_style], with Beta_sector being [1, `sector_scores`]: the market scores are
+    a column of ones representing inclusion in the market for each asset under consideration, and the market betas
+    are spanned by the sector betas. In other words, any asset's exposure to the market can be precisely replicated via
+    linear combination of its sector exposures. To see this, consider that the row for any asset's market + sector
+    factor scores is a 1 for the market inclusion, followed by 0, 0, ..., 1, ..., 0, 0, where the only other 1 is
+    in the sector membership and all 0s are in extraneous sectors. So, every Beta_sector row will have exactly two 1s:
+    the market and the sector, and so the market is trivially a linear combination with 1 = 0 + 0 + ... + 1 + ... 0 + 0.
+    Algebraically this means Beta_sector is rank-deficient and thus the solution space underdetermined.
+
+    To resolve this add a constraint forcing the sector returns to sum to 0, which economically has the interpretation
+    that the market return is the sum of all sector returns, and sector returns are relative to the market.
+
     Parameters
     ----------
     returns: np.ndarray returns of the assets (shape n_assets x 1)
@@ -78,13 +112,19 @@ def estimate_factor_returns(
 ) -> tuple[pl.DataFrame, pl.DataFrame] | pl.DataFrame:
     """Estimate factor and residual returns across all time periods using input asset factor scores.
 
+    See the documentation under `_factor_returns` for a complete mathematical specification of the model and
+    implementation considerations. The `_factor_returns` function is the complete implementation of the model for
+    a single time period's cross-section. This function is a wrapper that obtains the timeseries of rolling factor
+    returns from calling that function once in each time period. It also cleans up the output and returns it from
+    numpy array objects into Polars DataFrame objects for convenience.
+
     Parameters
     ----------
     returns_df: Polars DataFrame containing | date | symbol | asset_returns |
     mkt_cap_df: Polars DataFrame containing | date | symbol | market_cap |
     sector_df: Polars DataFrame containing | date | symbol | followed by one column for each sector
     style_df: Polars DataFrame containing | date | symbol | followed by one column for each style
-    winsor_factor: winsorization proportion
+    winsor_factor: optional float indicating the symmetric percentile at which winsorization should be applied
     residualize_styles: bool indicating if style returns should be orthogonalized to market + sector returns
     asset_returns_col: str name of the column we expect to find asset return values in, defaults to "asset_returns"
     mkt_cap_col: str name of the column we expect to find market cap values in, defaults to "market_cap"
@@ -119,8 +159,7 @@ def estimate_factor_returns(
             .join(style_df, on=[date_col, symbol_col])
         )
         dates = returns_df[date_col].unique().to_list()
-        # iterate through, one day at a time
-        # this could probably be made more efficient with Polars' `.map_groups` method
+        # TODO: improve performance by using Polars `.map_groups`
         for dt in dates:
             ddf = returns_df.filter(pl.col(date_col) == dt).sort(symbol_col)
             r = ddf[asset_returns_col].to_numpy()
