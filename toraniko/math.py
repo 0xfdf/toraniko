@@ -180,7 +180,7 @@ def exp_weights(window: int, half_life: int) -> np.ndarray:
 
     Returns
     -------
-    numpy array
+    1D numpy array with shape (window,)
     """
     try:
         assert isinstance(window, int)
@@ -196,3 +196,96 @@ def exp_weights(window: int, half_life: int) -> np.ndarray:
         raise TypeError("`half_life` must be an integer type") from e
     decay = np.log(2) / half_life
     return np.exp(-decay * np.arange(window))[::-1]
+
+
+def ledoit_wolf_shrinkage(X: np.ndarray) -> tuple[float | int, np.ndarray]:
+    """Estimate the covariance matrix of `X` via standard Ledoit-Wolf shrinkage.
+
+    Parameters
+    ----------
+    X : array-like input data matrix for which to estimate covariance, having shape (n_samples, m_features)
+
+    Returns
+    -------
+    shrinkage: float estimated shrinkage parameter.
+    shrunk_cov: numpy ndarray estimated shrunk covariance matrix having shape (n_features, n_features)
+    """
+    n, m = X.shape
+
+    # Center the data
+    X = X - X.mean(axis=0)
+
+    # Estimate sample covariance
+    sample_cov = np.dot(X.T, X) / n
+
+    # Calculate the squared Frobenius norm of sample covariance
+    f_norm2 = np.sum(sample_cov**2)
+
+    # Estimate of tr(sigma^2) / p
+    mu = np.trace(sample_cov) / m
+
+    # Estimate of tr((X^T X)^2) / (n_samples^2 p)
+    alpha = (n / (m * (n - 1) ** 2)) * (np.sum((X**2).T.dot(X**2)) / n - f_norm2 / n)
+
+    # Estimate of tr(sigma^2) / p
+    beta = (1 / (m * n)) * (np.sum(sample_cov**2) - (np.sum(sample_cov.diagonal() ** 2) / n))
+
+    # Estimate shrinkage parameter
+    shrinkage = min(alpha / beta, 1)
+
+    # Compute shrunk covariance matrix
+    shrunk_cov = (1 - shrinkage) * sample_cov + shrinkage * mu * np.eye(m)
+
+    return shrinkage, shrunk_cov
+
+
+def stfu_shrinkage(X: np.ndarray) -> tuple[tuple[float | int, ...], np.ndarray]:
+    """Estimate the covariance matrix of `X` via Specializing the Target to Features and Unlabeled shrinkage (SFTU).
+
+    Parameters
+    ----------
+    X : array-like input data matrix for which to estimate covariance, having shape (n_samples, m_features)
+
+    Returns
+    -------
+    shrinkage: float estimated shrinkage parameter.
+    shrunk_cov: numpy ndarray estimated shrunk covariance matrix having shape (n_features, n_features)
+    """
+    n, m = X.shape
+
+    # Center the data
+    X = X - X.mean(axis=0)
+
+    # Sample covariance
+    sample_cov = np.dot(X.T, X) / n
+
+    # Diagonal of sample covariance
+    sample_var = np.diag(sample_cov)
+
+    # Mean of sample variances
+    mean_var = np.mean(sample_var)
+
+    # Estimate of tr(sigma^2)
+    tr_sigma2 = np.sum(sample_cov**2)
+
+    # Estimate of tr(sigma^4)
+    tr_sigma4 = np.sum((X.T @ X / n) ** 2)
+
+    # Estimate lambda_star (shrinkage towards diagonal matrix)
+    lambda_star = (tr_sigma2 - np.sum(sample_var**2)) / (
+        (n - 1) * (tr_sigma2 - 2 * np.sum(sample_var**2) + m * mean_var**2)
+    )
+    lambda_star = max(0, min(1, lambda_star))
+
+    # Estimate mu_star (shrinkage towards scalar matrix)
+    mu_star = (tr_sigma2 - m * mean_var**2) / ((n - 1) * (tr_sigma4 - tr_sigma2**2 / m))
+    mu_star = max(0, min(1, mu_star))
+
+    # Compute shrunk covariance matrix
+    shrunk_cov = (
+        (1 - lambda_star) * sample_cov
+        + lambda_star * np.diag(sample_var)
+        + lambda_star * mu_star * (mean_var - np.diag(sample_var))
+    )
+
+    return (lambda_star, mu_star), shrunk_cov

@@ -2,6 +2,10 @@ from __future__ import annotations
 
 import sys
 
+__title__ = "toraniko"
+
+__description__ = "A multi-factor equity risk model for quantitative trading."
+
 __version__ = "1.2.0"
 
 
