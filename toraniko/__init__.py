@@ -28,7 +28,7 @@ def show_versions() -> None:
     import platform
 
     deps = _get_dependency_info()
-    core_properties = ("Toraniko", "Index type", "Platform", "Python")
+    core_properties = ("Toraniko", "Platform", "Python")
     keylen = max(len(x) for x in [*core_properties, *deps.keys()]) + 1
 
     print("--------Version info---------")

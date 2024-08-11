@@ -33,7 +33,7 @@ def factor_mom(
 ) -> pl.LazyFrame:
     """Estimate rolling symbol by symbol momentum factor scores using asset returns.
 
-    This implements the momentum factor according to the Barra specification:
+    This implements the momentum factor similar to the common Barra specification:
 
     1. First lag the asset returns by `lag=20` days to remove the most recent month (1 month = 20 trading days)
        from consideration.
@@ -154,7 +154,7 @@ def factor_val(
 ) -> pl.LazyFrame:
     """Estimate rolling symbol by symbol value factor scores using price ratios.
 
-    This implements the value factor using the three major variables considered by most vendors including Barra: the
+    This implements the value factor using the three major variables considered by most vendors such as Barra: the
     book to price ratio, the sales to price ratio and the cash flow to price ratio.
 
     First we individually center and standardize each of the three features cross-sectionally. Then we take their
