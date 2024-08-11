@@ -1,7 +1,5 @@
 """Utility functions, primarily for data cleaning."""
 
-import json
-
 import numpy as np
 import polars as pl
 
@@ -136,3 +134,43 @@ def top_n_by_group(
         raise ValueError(f"`df` is missing one or more required columns: '{rank_var}' and '{group_var}'") from e
     except AttributeError as e:
         raise TypeError("`df` must be a Polars DataFrame or LazyFrame but is missing a required attribute") from e
+
+
+def create_dummy_variables(df: pl.DataFrame, id_col: str, category_col: str) -> pl.DataFrame:
+    """Get a new Polars DataFrame with dummy variables created from the `id_col` and `category_col` columns.
+
+    Given the input `df` has columns | `id_col` | `category_col` | with no duplicate values in `id_col`, a new
+    Polars DataFrame will be returned with | `id_col` | category_1 | category_2 | ... | category_n |, and each
+    row will consist of the string `id_col` value followed by 0s in each column, except the column corresponding to
+    its original value in `df`.
+
+    Parameters
+    ----------
+    df: Polars DataFrame containing data to transform into dummy variables
+    id_col: str name of the column to index dummy membership against
+    category_col: str name of the column containing membership for `id_col`
+
+    Returns
+    -------
+    Polars DataFrame with shape
+
+    """
+    try:
+        # Sanity check the inputs
+        if df.is_empty():
+            raise ValueError("`df` is empty!")
+        if len(df[id_col].unique().to_list()) != len(df[id_col].to_list()):
+            raise ValueError(f"It looks like you have duplicate values in the '{id_col}' column")
+
+        # Get unique categories
+        categories = df[category_col].unique().sort()
+
+        # Create dummy columns
+        dummy_cols = [pl.when(pl.col(category_col) == cat).then(1).otherwise(0).alias(cat) for cat in categories]
+
+        # Group by id_col and aggregate dummy columns
+        return df.group_by(id_col).agg(dummy_cols).explode(pl.exclude(id_col))
+    except AttributeError as e:
+        raise TypeError("`df` must be a Polars DataFrame, but it's missing required attributes") from e
+    except pl.exceptions.ColumnNotFoundError as e:
+        raise ValueError(f"`df` must have '{id_col}' and '{category_col}' columns") from e

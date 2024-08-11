@@ -198,6 +198,7 @@ def exp_weights(window: int, half_life: int) -> np.ndarray:
     return np.exp(-decay * np.arange(window))[::-1]
 
 
+# TODO: test
 def ledoit_wolf_shrinkage(X: np.ndarray) -> tuple[float | int, np.ndarray]:
     """Estimate the covariance matrix of `X` via standard Ledoit-Wolf shrinkage.
 
@@ -239,6 +240,7 @@ def ledoit_wolf_shrinkage(X: np.ndarray) -> tuple[float | int, np.ndarray]:
     return shrinkage, shrunk_cov
 
 
+# TODO: test
 def stfu_shrinkage(X: np.ndarray) -> tuple[tuple[float | int, ...], np.ndarray]:
     """Estimate the covariance matrix of `X` via Specializing the Target to Features and Unlabeled shrinkage (SFTU).
 
