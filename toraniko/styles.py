@@ -7,7 +7,6 @@ import polars.exceptions as pl_exc
 from toraniko.math import (
     exp_weights,
     center_xsection,
-    percentiles_xsection,
     winsorize_xsection,
 )
 
@@ -26,9 +25,11 @@ def factor_mom(
     lag: int = 20,
     winsor_factor: float | None = 0.01,
     center: bool = True,
+    standardize: bool = True,
     asset_returns_col: str = "asset_returns",
     symbol_col: str = "symbol",
     date_col: str = "date",
+    score_col: str = "mom_score",
 ) -> pl.LazyFrame:
     """Estimate rolling symbol by symbol momentum factor scores using asset returns.
 
@@ -42,7 +43,9 @@ def factor_mom(
     There are also two optional post-processing steps:
 
     1. Optionally winsorize the momentum scores at the `winsor_factor` percentile, symmetrically. Default 1st and 99th.
-    2. Optionally center (but not standardize) the final momentum scores around 0. Defaults to true.
+    2. Optionally center (and standardize if `standardize=True`) the final momentum scores around 0. Defaults to true.
+
+    In practice, you should center and standardize your factor scores unless you have a very good reason not to.
 
     Parameters
     ----------
@@ -52,13 +55,15 @@ def factor_mom(
     lag: int number of days to lag the current day's return observation (20 trading days is one month)
     winsor_factor: optional float symmetric percentile at which to winsorize, e.g. 0.01 is 1st and 99th percentiles
     center: boolean indicating whether to center the final momentum scores before returning
+    standardize: boolean indicating whether to standardize the final momentum scores after centering
     asset_returns_col: str name of the column we expect to find the asset returns value in, defaults to "asset_returns"
     symbol_col: str name of the column we expect to find the symbol names in, defaults to "symbol"
     date_col: str name of the column we expect to find the dates (or datetimes) in, defaults to "date"
+    score_col: str name of the column to place the score values under, defaults to "mom_score"
 
     Returns
     -------
-    Polars DataFrame containing columns: | date | symbol | mom_score |
+    Polars DataFrame containing columns: | `date_col` | `symbol_col` | `score_col` |
     """
     weights = exp_weights(trailing_days, half_life)
 
@@ -75,18 +80,16 @@ def factor_mom(
                 pl.col(asset_returns_col)
                 .rolling_map(weighted_cumprod, window_size=trailing_days)
                 .over(pl.col(symbol_col))
-                .alias("mom_score")
+                .alias(score_col)
             )
-        ).collect()
+        )
         if winsor_factor is not None:
-            df = winsorize_xsection(df, ("mom_score",), date_col, percentile=winsor_factor)
+            df = winsorize_xsection(df.collect(), (score_col,), date_col, percentile=winsor_factor).lazy()
         if center:
-            df = df.lazy().select(
-                pl.col(date_col),
-                pl.col(symbol_col),
-                center_xsection("mom_score", date_col, True).alias("mom_score"),
+            df = df.with_columns(
+                center_xsection(score_col, date_col, standardize=standardize).alias(score_col),
             )
-        return df
+        return df.select(date_col, symbol_col, score_col)
     except AttributeError as e:
         raise TypeError("`returns_df` must be a Polars DataFrame | LazyFrame, but it's missing attributes") from e
     except pl_exc.ColumnNotFoundError as e:
@@ -97,13 +100,12 @@ def factor_mom(
 
 def factor_sze(
     mkt_cap_df: pl.DataFrame | pl.LazyFrame,
-    lower_decile: float | None = 0.2,
-    upper_decile: float | None = 0.8,
     center: bool = True,
-    fill_value: float = 0.0,
+    standardize: bool = True,
     mkt_cap_col: str = "market_cap",
     symbol_col: str = "symbol",
     date_col: str = "date",
+    score_col: str = "sze_score",
 ) -> pl.LazyFrame:
     """Estimate rolling symbol by symbol size factor scores using asset market caps.
 
@@ -111,38 +113,27 @@ def factor_sze(
     to their rough order of magnitude, which is the salient feature we care most about. Given that we want to capture
     the risk premium of smaller factors over larger ones, we also multiply by -1.
 
+    In practice, you should center and standardize your factor scores unless you have a very good reason not to.
+
     Parameters
     ----------
     mkt_cap_df: Polars DataFrame containing columns: | date | symbol | market_cap |
-    lower_decile: optional float indicating the lower percentile, if any, to disregard values below
-    upper_decile: optional float indicating the upper percentile, if any, to disregard values above
-    center: boolean indicating whether to center the scores prior to percentile adjustment
+    center: boolean indicating whether to center the final size scores before returning
+    standardize: boolean indicating whether to standardize the final size scores after centering
     mkt_cap_col: str name of the column we expect to find the market cap values in, defaults to "market_cap"
     symbol_col: str name of the column we expect to find the symbol names in, defaults to "symbol"
     date_col: str name of the column we expect to find the dates (or datetimes) in, defaults to "date"
+    score_col: str name of the column to place the score values under, defaults to "sze_score"
 
     Returns
     -------
-    Polars DataFrame containing columns: | date | symbol | sze_score |
+    Polars DataFrame containing columns: | `date` | `symbol` | `score_col` |
     """
     try:
-        df = mkt_cap_df.lazy()
-        df = (
-            df
-            # the size risk premium is on smaller firms rather than the larger ones. consequently we multiply by -1
-            .with_columns(pl.col(mkt_cap_col).log().alias("sze_score") * -1)
-        )
+        df = mkt_cap_df.lazy().with_columns(pl.col(mkt_cap_col).log().alias(score_col))
         if center:
-            df = df.with_columns(
-                date_col,
-                symbol_col,
-                (center_xsection("sze_score", date_col, True)).alias("sze_score"),
-            )
-        if lower_decile is not None and upper_decile is not None:
-            df = df.with_columns(
-                percentiles_xsection("sze_score", date_col, lower_decile, upper_decile, fill_value).alias("sze_score")
-            ).select(date_col, symbol_col, "sze_score")
-        return df
+            df = df.with_columns((center_xsection(score_col, date_col, standardize=standardize)).alias(score_col) * -1)
+        return df.select(date_col, symbol_col, score_col)
     except AttributeError as e:
         raise TypeError("`mkt_cap_df` must be a Polars DataFrame or LazyFrame, but it's missing attributes") from e
     except pl_exc.ColumnNotFoundError as e:
@@ -152,35 +143,47 @@ def factor_sze(
 def factor_val(
     value_df: pl.DataFrame | pl.LazyFrame,
     winsor_factor: float | None = 0.05,
+    center: bool = True,
+    standardize: bool = True,
     bp_col: str = "book_price",
     sp_col: str = "sales_price",
     cf_col: str = "cf_price",
     symbol_col: str = "symbol",
     date_col: str = "date",
+    score_col: str = "val_score",
 ) -> pl.LazyFrame:
     """Estimate rolling symbol by symbol value factor scores using price ratios.
 
     This implements the value factor using the three major variables considered by most vendors including Barra: the
     book to price ratio, the sales to price ratio and the cash flow to price ratio.
 
+    First we individually center and standardize each of the three features cross-sectionally. Then we take their
+    simple average in each time period's cross-section. This is the final score, which is optionally centered and
+    standardized once more.
+
+    In practice, you should center and standardize your factor scores unless you have a very good reason not to.
+
     Parameters
     ----------
     value_df: Polars DataFrame containing columns: | date | symbol | book_price | sales_price | cf_price
     winsor_factor: optional float indicating what percentile to symmetrically winsorize features at, if desired
+    center: boolean indicating whether to center the final value scores before returning
+    standardize: boolean indicating whether to standardize the final value scores after centering
     bp_col: str name of the column we expect to find the book-price ratio values in, defaults to "book_price"
     sp_col: str name of the column we expect to find the sales-price ratio values in, defaults to "sales_price"
     cf_col: str name of the column we expect to find the cash flow-price ratio values in, defaults to "cf_price"
     symbol_col: str name of the column we expect to find the symbol names in, defaults to "symbol"
     date_col: str name of the column we expect to find the dates (or datetimes) in, defaults to "date"
+    score_col: str name of the column to place the score values under, defaults to "val_score"
 
     Returns
     -------
-    Polars DataFrame containing: | date | symbol | val_score |
+    Polars DataFrame containing: | `date` | `symbol` | `score_col` |
     """
     try:
         if winsor_factor is not None:
             value_df = winsorize_xsection(value_df, (bp_col, sp_col, cf_col), date_col, percentile=winsor_factor)
-        return (
+        df = (
             value_df.lazy()
             .with_columns(
                 pl.col(bp_col).log().alias(bp_col),
@@ -197,13 +200,15 @@ def factor_val(
                     pl.col(bp_col),
                     pl.col(sp_col),
                     pl.col(cf_col),
-                ).alias("val_score")
+                ).alias(score_col)
             )
-            .select(
-                pl.col(date_col),
-                pl.col(symbol_col),
-                center_xsection("val_score", date_col, True).alias("val_score"),
-            )
+        )
+        if center:
+            df = df.with_columns(center_xsection(score_col, date_col, standardize=True).alias(score_col))
+        return df.select(
+            date_col,
+            symbol_col,
+            score_col,
         )
     except AttributeError as e:
         raise TypeError("`value_df` must be a Polars DataFrame or LazyFrame, but it's missing attributes") from e
