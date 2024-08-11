@@ -24,9 +24,22 @@ def factor_mom(
     trailing_days: int = 504,
     half_life: int = 126,
     lag: int = 20,
-    winsor_factor: float = 0.01,
+    winsor_factor: float | None = 0.01,
+    center: bool = True,
 ) -> pl.LazyFrame:
     """Estimate rolling symbol by symbol momentum factor scores using asset returns.
+
+    This implements the momentum factor according to the Barra specification:
+
+    1. First lag the asset returns by `lag=20` days to remove the most recent month (1 month = 20 trading days)
+       from consideration.
+    2. Next exponentially weight the asset returns with a `half_life=126` rate of decay, and take the cumulative
+       return of each asset from t - `trailing_days=504` through to t for each time period t.
+
+    There are also two optional post-processing steps:
+
+    1. Optionally winsorize the momentum scores at the `winsor_factor` percentile, symmetrically. Default 1st and 99th.
+    2. Optionally center (but not standardize) the final momentum scores around 0. Defaults to true.
 
     Parameters
     ----------
@@ -34,6 +47,8 @@ def factor_mom(
     trailing_days: int look back period over which to measure momentum
     half_life: int decay rate for exponential weighting, in days
     lag: int number of days to lag the current day's return observation (20 trading days is one month)
+    winsor_factor: optional float symmetric percentile at which to winsorize, e.g. 0.01 is 1st and 99th percentiles
+    center: boolean indicating whether to center the final momentum scores before returning
 
     Returns
     -------
@@ -56,12 +71,15 @@ def factor_mom(
                 .alias("mom_score")
             )
         ).collect()
-        df = winsorize_xsection(df, ("mom_score",), "date", percentile=winsor_factor)
-        return df.lazy().select(
-            pl.col("date"),
-            pl.col("symbol"),
-            center_xsection("mom_score", "date", True).alias("mom_score"),
-        )
+        if winsor_factor is not None:
+            df = winsorize_xsection(df, ("mom_score",), "date", percentile=winsor_factor)
+        if center:
+            df = df.lazy().select(
+                pl.col("date"),
+                pl.col("symbol"),
+                center_xsection("mom_score", "date", True).alias("mom_score"),
+            )
+        return df.lazy()
     except AttributeError as e:
         raise TypeError("`returns_df` must be a Polars DataFrame | LazyFrame, but it's missing attributes") from e
     except pl_exc.ColumnNotFoundError as e:
