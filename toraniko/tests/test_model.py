@@ -174,4 +174,4 @@ def test_estimate_factor_returns_incorrect_types():
 def test_estimate_factor_returns_missing_columns():
     returns_df, mkt_cap_df, sector_df, style_df = model_sample_data()
     with pytest.raises(ValueError):
-        estimate_factor_returns(returns_df.drop("asset_returns"), mkt_cap_df, sector_df, style_df)
+        estimate_factor_returns(returns_df, mkt_cap_df, sector_df, style_df, asset_returns_col="symbol_returns")

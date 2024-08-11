@@ -151,6 +151,10 @@ def factor_sze(
     try:
         df = mkt_cap_df.lazy().with_columns(pl.col(mkt_cap_col).log().alias(score_col))
         if lower_decile is not None and upper_decile is not None:
+            logger.warning(
+                "In a future major release, `lower_decile` and `upper_decile` will be renamed to "
+                "`lower_pctile` and `upper_pctile` respectively, to more accurately reflect intent"
+            )
             df = df.with_columns(
                 percentiles_xsection(
                     score_col, date_col, lower_pct=lower_decile, upper_pct=upper_decile, fill_val=0.0
