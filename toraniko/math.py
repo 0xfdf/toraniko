@@ -7,7 +7,7 @@ import polars as pl
 def center_xsection(target_col: str, over_col: str, standardize: bool = False) -> pl.Expr:
     """Cross-sectionally center (and optionally standardize) a Polars DataFrame `target_col` partitioned by `over_col`.
 
-    This returns a Polars expression, so it be chained in a `select` or `with_columns` invocation
+    This returns a Polars expression, so it can be chained in a `select` or `with_columns` invocation
     without needing to set a new intermediate DataFrame or materialize lazy evaluation.
 
     Parameters
@@ -68,7 +68,7 @@ def norm_xsection(
 def winsorize(data: np.ndarray, percentile: float = 0.05, axis: int = 0) -> np.ndarray:
     """Windorize each vector of a 2D numpy array to symmetric percentiles given by `percentile`.
 
-    This returns a Polars expression, not a DataFrame, so it be chained (including lazily) in
+    This returns a Polars expression, not a DataFrame, so it can be chained (including lazily) in
     a `select` or `with_columns` invocation without needing to set a new intermediate DataFrame variable.
 
     Parameters
@@ -143,9 +143,9 @@ def percentiles_xsection(
 ) -> pl.Expr:
     """Cross-sectionally mark all values of `target_col` that fall outside the `lower_pct` percentile or
     `upper_pct` percentile, within each `over_col` group. This is essentially an anti-winsorization, suitable for
-    building high - low portfolios. The `fill_val` is inserted to each value between the percentile cutoffs.
+    building high - low groups. The `fill_val` is inserted to each value between the percentile cutoffs.
 
-    This returns a Polars expression, so it be chained in a `select` or `with_columns` invocation
+    This returns a Polars expression, so it can be chained in a `select` or `with_columns` invocation
     without needing to set a new intermediate DataFrame or materialize lazy evaluation.
 
     Parameters
