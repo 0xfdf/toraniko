@@ -52,10 +52,20 @@ class FactorModel:
         if self.settings["style_factors"]["mom"]["enabled"]:
             style_factor_scores["mom"] = factor_mom(
                 self.style_factor_data["mom"],
-                asset_returns_col=self.settings["global_column_names"]["asset_returns_col"],
-                symbol_col=self.settings["global_column_names"]["symbol_col"],
-                date_col=self.settings["global_column_names"]["date_col"],
+                **self.settings["global_column_names"],
                 **self.settings["style_factors"]["mom"],
+            )
+        if self.settings["style_factors"]["sze"]["enabled"]:
+            style_factor_scores["sze"] = factor_sze(
+                self.style_factor_data["sze"],
+                **self.settings["global_column_names"],
+                **self.settings["style_factors"]["sze"],
+            )
+        if self.settings["style_factors"]["val"]["enabled"]:
+            style_factor_scores["val"] = factor_val(
+                self.style_factor_data["val"],
+                **self.settings["global_column_names"],
+                **self.settings["style_factors"]["val"],
             )
         self.style_factor_scores = style_factor_scores
         self.scores_estimated = True
