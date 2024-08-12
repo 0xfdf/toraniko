@@ -9,16 +9,25 @@ import polars as pl
 
 from toraniko.styles import factor_mom, factor_sze, factor_val
 from toraniko.utils import smooth_features
+from toraniko.config import load_config, init_config
 
 
+# TODO: on first load, check to see if .toraniko directory exists in home directory
+#   - if it does not, create it
+#   - then check to see if there is a config.ini file in there; if there isn't, copy it from the sample config.ini
 class FactorModel:
 
+    # TODO: integrate any custom factors to the repr, if active
     def __repr__(self):
-        return f"<Toraniko.FactorModel: {self.str_config}>"
+        return (
+            f"<toraniko.FactorModel: (Custom factors: {self.enabled_custom}, Style factors: {self.enabled_styles}, "
+            f"Scores estimated: {self.scores_estimated}, Returns estimated: "
+            f"{self.returns_estimated}, Covariance estimated: {self.covariance_estimated})>"
+        )
 
-    def __init__(self, config_file: str, log_level: Literal["info", "error", "debug"] = "info"):
+    def __init__(self, config_file: str | None = None, log_level: Literal["INFO", "ERROR", "DEBUG"] = "INFO"):
         """"""
-        self.load_config(config_file)
+        self.settings = load_config(config_file)
         self.logger = logging.getLogger(__name__)
         self.logger.setLevel(log_level)
         self.style_factor_data = {}
@@ -28,46 +37,28 @@ class FactorModel:
         self.style_factor_scores = None
         self.factor_returns = None
         self.residual_returns = None
-
-    def load_config(self, config_file) -> None:
-        """"""
-        try:
-            self.config = configparser.ConfigParser()
-            self.config.read(config_file)
-        except FileNotFoundError as e:
-            raise ValueError(f"Failed to read `config_file` '{config_file}'; does it exist in that location?") from e
-        try:
-            self.asset_returns_col = self.config["global_column_names"]["asset_returns_col"]
-            self.symbol_col = self.config["global_column_names"]["symbol_col"]
-            self.date_col = self.config["global_column_names"]["date_col"]
-            self.mkt_cap_col = self.config["global_column_names"]["market_cap"]
-        except KeyError as e:
-            raise ValueError(
-                "Failed to set global column names; your config file must have a section "
-                "'global_column_names' with string values for 'asset_returns_col', 'symbol_col', "
-                "'date_col' and 'market_cap'"
-            ) from e
-        try:
-            self.model_estimation_settings = {
-                "winsor_factor": float(self.config["model_estimation"]["winsor_factor"]),
-                "residualize_styles": self.config["model_estimation"]["residualize_styles"].lower() == "true",
-                "mkt_factor_col": self.config["model_estimation"]["mkt_factor_col"],
-                "res_ret_col": self.config["model_estimation"]["res_ret_col"],
-                "top_n_by_mkt_cap": int(self.config["model_estimation"]["top_n_by_mkt_cap"]),
-            }
-        except (KeyError, ValueError) as e:
-            raise ValueError(
-                "Failed to set model estimation settings; your config gile must have a section "
-                "'model_estimation' with values for 'winsor_factor' (float), 'residualize_styles' (string bool) "
-                "'mkt_factor_col' (string), 'res_ret_col', (string), 'top_n_by_mkt_cap' (int), 'mkt_cap_smooth_window' "
-                "(int)"
-            ) from e
-        self.str_config = StringIO()
-        self.config.write(self.str_config)
+        self.scores_estimated = False
+        self.returns_estimated = False
+        self.covariance_estimated = False
+        self.enabled_styles = [
+            f for f in self.settings["style_factors"] if self.settings["style_factors"][f]["enabled"]
+        ]
+        self.enabled_custom = [f for f in self.settings.get("custom_factors", [])]
 
     # TODO: improve performance, these style factors can be processed concurrently
     def _estimate_style_factor_scores(self) -> None:
         """"""
+        style_factor_scores = {}
+        if self.settings["style_factors"]["mom"]["enabled"]:
+            style_factor_scores["mom"] = factor_mom(
+                self.style_factor_data["mom"],
+                asset_returns_col=self.settings["global_column_names"]["asset_returns_col"],
+                symbol_col=self.settings["global_column_names"]["symbol_col"],
+                date_col=self.settings["global_column_names"]["date_col"],
+                **self.settings["style_factors"]["mom"],
+            )
+        self.style_factor_scores = style_factor_scores
+        self.scores_estimated = True
 
     def _estimate_factor_returns(self) -> None:
         """"""
@@ -88,23 +79,22 @@ class FactorModel:
         """"""
         # TODO: validate sector_scores
         self.sector_factor_scores = sector_scores
-        if self.config["model_estimation"]["mkt_cap_smooth_window"] is not None:
+        if self.settings["model_estimation"]["mkt_cap_smooth_window"] is not None:
             mkt_caps = smooth_features(
                 mkt_caps,
-                (self.config["global_column_names"],),
-                self.config["date_col"],
-                self.config["symbol_col"],
-                self.config["mkt_cap_smooth_window"],
+                (self.settings["global_column_names"]["mkt_cap_col"],),
+                self.settings["global_column_names"]["date_col"],
+                self.settings["global_column_names"]["symbol_col"],
+                self.settings["model_estimation"]["mkt_cap_smooth_window"],
             )
-        if self.config["style_factors.mom"]["enabled"]:
+        if self.settings["style_factors"]["mom"]["enabled"]:
             self.style_factor_data["mom"] = asset_returns
-        if self.config["style_factors.sze"]["enabled"]:
+        if self.settings["style_factors"]["sze"]["enabled"]:
             self.style_factor_data["sze"] = mkt_caps
-        if self.config["style_factors.val"]["enabled"]:
-            if valuations is None:
-                raise ValueError(
-                    "`style_factors.val.enabled` is set to true in config, but no `valuations` were passed"
-                )
-            self.style_factor_data["val"] = valuations
+        # if self.settings["style_factors"]["val"]["enabled"]:
+        #     if valuations is None:
+        #         raise ValueError(
+        #             "`style_factors.val.enabled` is set to true in config, but no `valuations` were passed"
+        #         )
+        #     self.style_factor_data["val"] = valuations
         self._estimate_style_factor_scores()
-        # TODO: implement custom factor logic

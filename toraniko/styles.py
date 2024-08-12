@@ -35,6 +35,7 @@ def factor_mom(
     symbol_col: str = "symbol",
     date_col: str = "date",
     score_col: str = "mom_score",
+    **kwargs,
 ) -> pl.LazyFrame:
     """Estimate rolling symbol by symbol momentum factor scores using asset returns.
 
@@ -97,7 +98,7 @@ def factor_mom(
         else:
             if standardize:
                 logger.warning(
-                    "`standardize` is not applied if `center=False` is passed. Skipping standardization; "
+                    "WARNING: `standardize` is not applied if `center=False` is passed. Skipping standardization; "
                     "please check your arguments"
                 )
         return df.select(date_col, symbol_col, score_col)
@@ -119,6 +120,7 @@ def factor_sze(
     symbol_col: str = "symbol",
     date_col: str = "date",
     score_col: str = "sze_score",
+    **kwargs,
 ) -> pl.LazyFrame:
     """Estimate rolling symbol by symbol size factor scores using asset market caps.
 
@@ -152,7 +154,7 @@ def factor_sze(
         df = mkt_cap_df.lazy().with_columns(pl.col(mkt_cap_col).log().alias(score_col))
         if lower_decile is not None and upper_decile is not None:
             logger.warning(
-                "In a future major release, `lower_decile` and `upper_decile` will be renamed to "
+                "WARNING: In a future major release, `lower_decile` and `upper_decile` will be renamed to "
                 "`lower_pctile` and `upper_pctile` respectively, to more accurately reflect intent"
             )
             df = df.with_columns(
@@ -162,15 +164,16 @@ def factor_sze(
             )
         if (lower_decile is not None and upper_decile is None) or (lower_decile is None and upper_decile is not None):
             logger.warning(
-                "`lower_decile` and `upper_decile` must both be float values to apply cross-sectional percentile limits, "
-                "but one is None. Skipping cross-sectional percentile limiting; please review arguments"
+                "WARNING: `lower_decile` and `upper_decile` must both be float values to apply cross-sectional "
+                "percentile limits, but one is None. Skipping cross-sectional percentile limiting; please review "
+                "arguments"
             )
         if center:
             df = df.with_columns((center_xsection(score_col, date_col, standardize=standardize)).alias(score_col) * -1)
         else:
             if standardize:
                 logger.warning(
-                    "`standardize` is not applied if `center=False` is passed. Skipping standardization; "
+                    "WARNING: `standardize` is not applied if `center=False` is passed. Skipping standardization; "
                     "please check your arguments"
                 )
         return df.select(date_col, symbol_col, score_col)
@@ -191,6 +194,7 @@ def factor_val(
     symbol_col: str = "symbol",
     date_col: str = "date",
     score_col: str = "val_score",
+    **kwargs,
 ) -> pl.LazyFrame:
     """Estimate rolling symbol by symbol value factor scores using price ratios.
 
@@ -248,7 +252,7 @@ def factor_val(
         else:
             if standardize:
                 logger.warning(
-                    "`standardize` is not applied if `center=False` is passed. Skipping standardization; "
+                    "WARNING: `standardize` is not applied if `center=False` is passed. Skipping standardization; "
                     "please check your arguments"
                 )
         return df.select(
