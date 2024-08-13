@@ -43,6 +43,8 @@ class FactorModel:
         ]
         self.enabled_custom = [f for f in self.settings.get("custom_factors", [])]
         self.enabled_custom = [f for f in self.enabled_custom if self.settings["custom_factors"][f]["enabled"]]
+        self.feature_data = None
+        self.sector_encodings = None
 
     # TODO: should be a standalone function accessible outside this class, with testing
     def _validate_features(self) -> None:
@@ -69,6 +71,7 @@ class FactorModel:
                     "`feature_data` is missing one or more required columns specified in "
                     "your config's 'style_factors.val' section, and the value factor is enabled"
                 )
+        self.feature_data = self.feature_data.lazy()
 
     def _validate_sector_scores(self) -> None:
         """"""
@@ -94,6 +97,7 @@ class FactorModel:
                 self.settings["global_column_names"]["symbol_col"],
                 self.settings["global_column_names"]["sectors_col"],
             )
+        self.sector_encodings = self.sector_encodings.lazy()
 
     def _fill_features(self) -> None:
         """"""
@@ -145,19 +149,19 @@ class FactorModel:
         style_factor_scores = {}
         if self.settings["style_factors"]["mom"]["enabled"]:
             style_factor_scores["mom"] = factor_mom(
-                self.style_factor_data["mom"],
+                self.feature_data,
                 **self.settings["global_column_names"],
                 **self.settings["style_factors"]["mom"],
             )
         if self.settings["style_factors"]["sze"]["enabled"]:
             style_factor_scores["sze"] = factor_sze(
-                self.style_factor_data["sze"],
+                self.feature_data,
                 **self.settings["global_column_names"],
                 **self.settings["style_factors"]["sze"],
             )
         if self.settings["style_factors"]["val"]["enabled"]:
             style_factor_scores["val"] = factor_val(
-                self.style_factor_data["val"],
+                self.feature_data,
                 **self.settings["global_column_names"],
                 **self.settings["style_factors"]["val"],
             )
@@ -179,7 +183,7 @@ class FactorModel:
         sector_df = self.feature_data.select(
             self.settings["global_column_names"]["date_col"], self.settings["global_column_names"]["symbol_col"]
         ).join(self.sector_encodings, on=self.settings["global_column_names"]["date_col"])
-        style_df = result_df = reduce(
+        style_df = reduce(
             lambda left, right: left.join(
                 right,
                 on=[
@@ -221,9 +225,8 @@ class FactorModel:
         """"""
         # TODO: validate sector_scores
         # setup initial data and time tracking
-        self.est_start_time = timer()
-        self.sector_encodings = sector_encodings
         self.feature_data = feature_data
+        self.sector_encodings = sector_encodings
         # validate inputs
         self._validate_features()
         self._validate_sector_scores()
