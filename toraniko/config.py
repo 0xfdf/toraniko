@@ -1,6 +1,7 @@
 """Functions related to config handling."""
 
 from configparser import ConfigParser
+import json
 import logging
 import os
 from pkg_resources import resource_filename
@@ -9,6 +10,7 @@ import shutil
 logger = logging.getLogger(__name__)
 
 
+# TODO: needs testing
 def init_config() -> None:
     """Initialize the project's config directory and create a sample config.ini file if one doesn't already exist.
 
@@ -33,6 +35,7 @@ def init_config() -> None:
         )
 
 
+# TODO: needs testing
 def load_config(config_file: str | None) -> dict:
     """Load a .ini config file according to an expected specification, and transform each of the settings into correct
     types. For example, "null" -> None, "3.14" -> 3.14, "true" -> True, etc.
@@ -55,9 +58,9 @@ def load_config(config_file: str | None) -> dict:
         config.read(config_file)
     except FileNotFoundError as e:
         raise ValueError(
-            f"Failed to read `config_file` '{config_file}'; does it exist in that location? A "
-            f"default project directory should have been installed to the user's home directory under "
-            f".toraniko at install time. If this isn't the case, try running `config.init_config()`."
+            f"Failed to read `config_file` '{config_file}'; does it exist in that location? Running toraniko-init from "
+            "the command line should install a default config file at ~/.toraniko/config.ini. Alternatively, try "
+            "running `toraniko.config.init_config()."
         ) from e
     settings = {}
     try:
@@ -79,11 +82,16 @@ def load_config(config_file: str | None) -> dict:
             "residualize_styles": config["model_estimation"]["residualize_styles"].lower() == "true",
             "mkt_factor_col": config["model_estimation"]["mkt_factor_col"],
             "res_ret_col": config["model_estimation"]["res_ret_col"],
+            "make_sector_dummies": config["model_estimation"]["make_sector_dummies"].lower() == "true",
         }
         if config["model_estimation"]["top_n_by_mkt_cap"].lower() != "null":
             settings["model_estimation"]["top_n_by_mkt_cap"] = int(config["model_estimation"]["top_n_by_mkt_cap"])
         else:
             settings["model_estimation"]["top_n_by_mkt_cap"] = None
+        if config["model_estimation"]["clean_features"].lower() != "null":
+            settings["model_estimation"]["clean_features"] = json.loads(config["model_estimation"]["clean_features"])
+        else:
+            settings["model_estimation"]["clean_features"] = None
         if config["model_estimation"]["mkt_cap_smooth_window"].lower() != "null":
             settings["model_estimation"]["mkt_cap_smooth_window"] = int(
                 config["model_estimation"]["mkt_cap_smooth_window"]
@@ -95,7 +103,9 @@ def load_config(config_file: str | None) -> dict:
             "Failed to set model estimation settings; your config gile must have a section "
             "'model_estimation' with values for 'winsor_factor' (float), 'residualize_styles' (string bool) "
             "'mkt_factor_col' (string), 'res_ret_col', (string), 'top_n_by_mkt_cap' (int), 'mkt_cap_smooth_window' "
-            "(int). See the sample config.ini for full documentation of the types and uses for each setting."
+            "(int), 'make_sector_dummies' (bool) 'clean_features' (list[str])"
+            "See the sample config.ini for full documentation of the types and uses for each setting. "
+            "If you don't have a config, try toraniko-init at the command line."
         ) from e
     settings["style_factors"] = {}
     try:
