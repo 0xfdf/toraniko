@@ -23,7 +23,7 @@ def fill_features(
     """
     try:
         # eagerly check all `features`, `sort_col`, `over_col` present: can't catch ColumNotFoundError in lazy context
-        assert all(c in df.columns for c in features + (sort_col, over_col))
+        assert all(c in df.collect_schema().names() for c in features + (sort_col, over_col))
         return (
             df.lazy()
             .with_columns([pl.col(f).cast(float).alias(f) for f in features])
@@ -74,7 +74,7 @@ def smooth_features(
     """
     try:
         # eagerly check `over_col`, `sort_col`, `features` present: can't catch pl.ColumnNotFoundError in lazy context
-        assert all(c in df.columns for c in features + (over_col, sort_col))
+        assert all(c in df.collect_schema().names() for c in features + (over_col, sort_col))
         return (
             df.lazy()
             .sort(by=sort_col)
@@ -113,7 +113,7 @@ def top_n_by_group(
     """
     try:
         # eagerly check `rank_var`, `group_var` are present: we can't catch a ColumnNotFoundError in a lazy context
-        assert all(c in df.columns for c in (rank_var,) + group_var)
+        assert all(c in df.collect_schema().names() for c in (rank_var,) + group_var)
         rdf = (
             df.lazy()
             .sort(by=list(group_var) + [rank_var])

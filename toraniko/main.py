@@ -2,8 +2,7 @@
 
 import logging
 from functools import reduce
-from timeit import default_timer as timer
-from typing import Literal
+from typing import Any, Callable, Iterable, Literal, TypedDict, Union
 
 import polars as pl
 import polars.exceptions as pl_exc
@@ -13,230 +12,127 @@ from toraniko.model import estimate_factor_returns
 from toraniko.styles import factor_mom, factor_sze, factor_val
 from toraniko.utils import create_dummy_variables, fill_features, smooth_features, top_n_by_group
 
+# TODO: consider turning the config into kwargs so it can be run on its own, not just driven by config
+# TODO: the ergonomics of this really need to be solid
+
+# TODO: before factor score return estimation
+# Step 6: Estimate rolling Ledoit-Wolf shrunk asset covariance, or create rolling market cap weight matrix
+
+# Step 7: Estimate rolling factor returns
+
+# Step 8: Optionally re-estimate loadings via timeseries regression of each asset on market, sector and custom + style factors
+
+# Step 9: Estimate rolling Ledoit-Wolf + STFU factor covariance
+
+
+class StyleFactor(TypedDict):
+    name: str
+    function: Callable[[Union[pl.DataFrame, pl.LazyFrame], ...], Any]
+    kwargs: dict
+
 
 class FactorModel:
 
+    # TODO: add settings and diagnostics here
     def __repr__(self):
-        return (
-            f"<toraniko.FactorModel: (Custom factors: {self.enabled_custom}, Style factors: {self.enabled_styles}, "
-            f"Scores estimated: {self.scores_estimated}, Returns estimated: "
-            f"{self.returns_estimated}, Covariance estimated: {self.covariance_estimated})>"
-        )
+        return f"<toraniko.FactorModel>"
 
-    def __init__(self, config_file: str | None = None, log_level: Literal["INFO", "ERROR", "DEBUG"] = "INFO"):
+    def __init__(
+        self,
+        feature_data: pl.DataFrame | pl.LazyFrame,
+        sector_encodings: pl.DataFrame | pl.LazyFrame,
+        log_level: Literal["INFO", "ERROR", "DEBUG"] = "INFO",
+        symbol_col: str = "symbol",
+        date_col: str = "date",
+        mkt_cap_col: str = "market_cap",
+        sectors_col: str = "sectors",
+    ):
         """"""
-        self.settings = load_config(config_file)
         self.logger = logging.getLogger(__name__)
         self.logger.setLevel(log_level)
-        self.style_factor_data = {}
-        self.asset_returns = None
-        self.market_caps = None
-        self.sector_factor_scores = None
-        self.style_factor_scores = None
+        self.symbol_col = symbol_col
+        self.date_col = date_col
+        self.mkt_cap_col = mkt_cap_col
+        self.sectors_col = sectors_col
+        self.feature_data = feature_data
+        self.sector_encodings = sector_encodings
+        self.filled_features = None
+        self.smoothed_features = None
+        self.top_n_mkt_cap = None
+        self.style_factors = {}
+        self.style_df = None
         self.factor_returns = None
         self.residual_returns = None
-        self.scores_estimated = False
-        self.returns_estimated = False
-        self.covariance_estimated = False
-        self.enabled_styles = [
-            f for f in self.settings["style_factors"] if self.settings["style_factors"][f]["enabled"]
-        ]
-        self.enabled_custom = [f for f in self.settings.get("custom_factors", [])]
-        self.enabled_custom = [f for f in self.enabled_custom if self.settings["custom_factors"][f]["enabled"]]
-        self.feature_data = None
-        self.sector_encodings = None
 
-    # TODO: should be a standalone function accessible outside this class, with testing
-    def _validate_features(self) -> None:
+    def clean_features(self, to_fill: list[str] | tuple[str, ...] | None, to_smooth: dict[str:int] | None) -> None:
         """"""
-        try:
-            if not all(c in self.feature_data.columns for c in self.settings["global_column_names"].values()):
-                raise ValueError(
-                    "`feature_data` appears to be misisng one or more of the required columns "
-                    "specified by your config's 'global_column_names' section"
+        if to_fill is not None:
+            self.feature_data = fill_features(self.feature_data, to_fill, self.date_col, self.symbol_col)
+            self.filled_features = to_fill
+        if to_smooth is not None:
+            for feature in to_smooth:
+                self.feature_data = smooth_features(
+                    self.feature_data, (feature,), self.date_col, self.symbol_col, to_smooth[feature]
                 )
-        except AttributeError as e:
-            raise TypeError(
-                "`feature_data` must be a Polars DataFrame, but it's missing the `columns` attribute"
-            ) from e
-        if self.settings["model_estimation"]["mkt_cap_col"] not in self.feature_data.columns:
-            raise ValueError("`feature_data` is missing the 'mkt_cap_col' specified by your config file")
-        if self.settings["style_factor.val"]["enabled"]:
-            if not all(
-                c in self.feature_data.columns
-                for k in ["bp_col", "sp_col", "cf_col"]
-                for c in self.settings["style_factor.val"][k]
-            ):
-                raise ValueError(
-                    "`feature_data` is missing one or more required columns specified in "
-                    "your config's 'style_factors.val' section, and the value factor is enabled"
-                )
-        self.feature_data = self.feature_data.lazy()
+            self.smoothed_features = to_smooth
 
-    def _validate_sector_scores(self) -> None:
+    def reduce_universe_by_market_cap(self, top_n: int | None = 2000) -> None:
         """"""
-        try:
-            if not all(
-                c in self.sector_encodings.columns
-                for c in [
-                    self.settings["global_column_names"]["date_col"],
-                    self.settings["global_column_names"]["symbol_col"],
-                ]
-            ):
-                raise ValueError(
-                    "`sector_encodings` is missing the required 'date_col' and 'symbol_col' as specified "
-                    "by your config file"
-                )
-        except AttributeError as e:
-            raise TypeError(
-                "`sector_encodings` must be a Polars DataFrame, but it's missing the columns attribute"
-            ) from e
-        if self.settings["model_estimation"]["make_sector_dummies"]:
-            self.sector_encodings = create_dummy_variables(
-                self.sector_encodings,
-                self.settings["global_column_names"]["symbol_col"],
-                self.settings["global_column_names"]["sectors_col"],
-            )
-        self.sector_encodings = self.sector_encodings.lazy()
-
-    def _fill_features(self) -> None:
-        """"""
-        # optional
-        # NB: this does not obviate the requirement to know your data! do not use this carelessly!
-        features = self.settings["model_estimation"]["clean_features"]
-        if features is not None:
-            try:
-                self.feature_data = fill_features(
-                    self.feature_data,
-                    features,
-                    self.settings["global_column_names"]["date_col"],
-                    self.settings["global_column_name"]["symbol_col"],
-                )
-            except pl_exc.ColumnNotFoundError as e:
-                raise ValueError(
-                    "`feature_data` is due to have features filled per the config, but `feature_data` is missing "
-                    "one or more of the column names specified in the config under 'model_estimation.clean_features'"
-                ) from e
-
-    def _smooth_market_caps(self) -> None:
-        """"""
-        window = self.settings["model_estimation"]["mkt_cap_smooth_window"]
-        if window is not None:
-            self.feature_data = smooth_features(
-                self.feature_data,
-                (self.settings["global_column_names"]["mkt_cap_col"],),
-                self.settings["global_column_names"]["date_col"],
-                self.settings["global_column_names"]["symbol_col"],
-                window,
-            )
-
-    def _restrict_universe(self) -> None:
-        """"""
-        top_n = self.settings["model_estimation"]["top_n_by_mkt_cap"]
         if top_n is not None:
-            self.feature_data = top_n_by_group(
-                self.feature_data,
-                top_n,
-                self.settings["global_column_names"]["mkt_cap_col"],
-                self.settings["global_column_names"]["date_col"],
-                True,
-            )
+            self.feature_data = top_n_by_group(self.feature_data, top_n, self.mkt_cap_col, (self.date_col,), True)
+            self.top_n_mkt_cap = top_n
 
-    # TODO: improve performance, these style factors can be processed concurrently
-    # TODO: this should be a standalone function available outside the class, and tested
-    def _estimate_style_factor_scores(self) -> None:
+    # TODO: these can be threaded or concurrent, no need to do sequentially
+    def estimate_style_scores(self, style_factors: Iterable[StyleFactor]) -> None:
         """"""
-        style_factor_scores = {}
-        if self.settings["style_factors"]["mom"]["enabled"]:
-            style_factor_scores["mom"] = factor_mom(
-                self.feature_data,
-                **self.settings["global_column_names"],
-                **self.settings["style_factors"]["mom"],
-            )
-        if self.settings["style_factors"]["sze"]["enabled"]:
-            style_factor_scores["sze"] = factor_sze(
-                self.feature_data,
-                **self.settings["global_column_names"],
-                **self.settings["style_factors"]["sze"],
-            )
-        if self.settings["style_factors"]["val"]["enabled"]:
-            style_factor_scores["val"] = factor_val(
-                self.feature_data,
-                **self.settings["global_column_names"],
-                **self.settings["style_factors"]["val"],
-            )
-        self.style_factor_scores = style_factor_scores
-        self.scores_estimated = True
-
-    def _estimate_factor_returns(self) -> None:
-        """"""
-        returns_df = self.feature_data.select(
-            self.settings["global_column_names"]["date_col"],
-            self.settings["global_column_names"]["symbol_col"],
-            self.settings["global_column_names"]["asset_returns_col"],
-        )
-        mkt_cap_df = self.feature_data.select(
-            self.settings["global_column_names"]["date_col"],
-            self.settings["global_column_names"]["symbol_col"],
-            self.settings["global_column_names"]["mkt_cap_col"],
-        )
-        sector_df = self.feature_data.select(
-            self.settings["global_column_names"]["date_col"], self.settings["global_column_names"]["symbol_col"]
-        ).join(self.sector_encodings, on=self.settings["global_column_names"]["date_col"])
-        style_df = reduce(
+        for style_factor in style_factors:
+            self.style_factors[style_factor["name"]] = style_factor["function"](
+                self.feature_data, **style_factor["kwargs"]
+            ).collect()
+        self.style_df = reduce(
             lambda left, right: left.join(
                 right,
                 on=[
-                    self.settings["global_column_names"]["date_col"],
-                    self.settings["global_column_names"]["symbol_col"],
+                    self.date_col,
+                    self.symbol_col,
                 ],
                 how="inner",
             ),
-            self.style_factor_scores.values(),
+            self.style_factors.values(),
         )
-        self.factor_returns, self.residual_returns = estimate_factor_returns(
-            returns_df,
-            mkt_cap_df,
-            sector_df,
-            style_df,
-            self.settings["model_estimation"]["winsor_factor"],
-            self.settings["model_estimation"]["residualize_styles"],
-            self.settings["global_column_names"]["asset_returns_col"],
-            self.settings["global_column_names"]["mkt_cap_col"],
-            self.settings["global_column_names"]["symbol_col"],
-            self.settings["global_column_names"]["date_col"],
-            self.settings["model_estimation"]["mkt_factor_col"],
-            self.settings["model_estimation"]["res_ret_col"],
-        )
-        self.returns_estimated = True
 
-    def _estimate_factor_cov(self) -> None:
-        """"""
-
-    # docstring NB: `sector_scores` must be in dummy variables, if this is not the case, use `utils.create_dummy_variables`
-    # docstring NB: `asset_returns` should already be cleaned of nulls and nans, if this is not the case, use `utils.fill_features`
-    # docstring NB: `mkt_caps` should already be cleaned of nulls and nans, if this is not the case, use `utils.fill_features`
-    # TODO: make both inputs lazy
-    def estimate(
+    def estimate_factor_returns(
         self,
-        feature_data: pl.DataFrame,
-        sector_encodings: pl.DataFrame,
+        winsor_factor: float = 0.01,
+        residualize_styles: bool = False,
+        proxy_for_idio_cov: Literal["market_cap", "ledoit_wolf"] = "market_cap",
+        asset_returns_col: str = "asset_returns",
+        mkt_factor_col: str = "Market",
+        res_ret_col: str = "res_asset_returns",
+        make_sector_dummies: bool = True,
     ) -> None:
         """"""
-        # TODO: validate sector_scores
-        # setup initial data and time tracking
-        self.feature_data = feature_data
-        self.sector_encodings = sector_encodings
-        # validate inputs
-        self._validate_features()
-        self._validate_sector_scores()
-        # forward fill features, optionally
-        self._fill_features()
-        # smooth market caps, optionally
-        self._smooth_market_caps()
-        # restrict the universe
-        self._restrict_universe()
-        # estimate style factor scores
-        self._estimate_style_factor_scores()
-        # estimate factor returns
-        self._estimate_factor_returns()
+        match proxy_for_idio_cov:
+            case "ledoit_wolf":
+                raise NotImplementedError("Not implemented yet!")
+            case "market_cap":
+                weight_df = self.feature_data.select(self.date_col, self.symbol_col, self.mkt_cap_col)
+            case _:
+                raise ValueError(f"'{proxy_for_idio_cov}' is not a valid option for `proxy_for_idio_cov`")
+        returns_df = self.feature_data.select(self.date_col, self.symbol_col, asset_returns_col)
+        if make_sector_dummies:
+            self.sector_encodings = create_dummy_variables(self.sector_encodings, self.symbol_col, self.sectors_col)
+        self.factor_returns, self.residual_returns = estimate_factor_returns(
+            returns_df,
+            weight_df,
+            self.sector_encodings,
+            self.style_df,
+            winsor_factor,
+            residualize_styles,
+            asset_returns_col,
+            self.mkt_cap_col,
+            self.symbol_col,
+            self.date_col,
+            mkt_factor_col,
+            res_ret_col,
+        )

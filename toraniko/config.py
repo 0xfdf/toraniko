@@ -69,6 +69,7 @@ def load_config(config_file: str | None) -> dict:
             "symbol_col": config["global_column_names"]["symbol_col"],
             "date_col": config["global_column_names"]["date_col"],
             "mkt_cap_col": config["global_column_names"]["mkt_cap_col"],
+            "sectors_col": config["global_column_names"]["sectors_col"],
         }
     except KeyError as e:
         raise ValueError(
