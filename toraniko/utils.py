@@ -4,6 +4,27 @@ import numpy as np
 import polars as pl
 
 
+# TODO: test
+# TODO: docstring
+def nan_to_null(df: pl.DataFrame | pl.LazyFrame, features: tuple[str, ...]) -> pl.LazyFrame:
+    """"""
+
+    return df.lazy().with_columns(
+        [
+            pl.when(
+                (pl.col(f).abs() == np.inf)
+                | (pl.col(f) == np.nan)
+                | (pl.col(f).is_null())
+                | (pl.col(f).cast(str) == "NaN")
+            )
+            .then(None)
+            .otherwise(pl.col(f))
+            .alias(f)
+            for f in features
+        ]
+    )
+
+
 def fill_features(
     df: pl.DataFrame | pl.LazyFrame, features: tuple[str, ...], sort_col: str, over_col: str
 ) -> pl.LazyFrame:
@@ -24,26 +45,8 @@ def fill_features(
     try:
         # eagerly check all `features`, `sort_col`, `over_col` present: can't catch ColumNotFoundError in lazy context
         assert all(c in df.collect_schema().names() for c in features + (sort_col, over_col))
-        return (
-            df.lazy()
-            .with_columns([pl.col(f).cast(float).alias(f) for f in features])
-            .with_columns(
-                [
-                    pl.when(
-                        (pl.col(f).abs() == np.inf)
-                        | (pl.col(f) == np.nan)
-                        | (pl.col(f).is_null())
-                        | (pl.col(f).cast(str) == "NaN")
-                    )
-                    .then(None)
-                    .otherwise(pl.col(f))
-                    .alias(f)
-                    for f in features
-                ]
-            )
-            .sort(by=sort_col)
-            .with_columns([pl.col(f).forward_fill().over(over_col).alias(f) for f in features])
-        )
+        df = nan_to_null(df.lazy().with_columns([pl.col(f).cast(float).alias(f) for f in features]), features)
+        return df.sort(by=sort_col).with_columns([pl.col(f).forward_fill().over(over_col).alias(f) for f in features])
     except AttributeError as e:
         raise TypeError("`df` must be a Polars DataFrame | LazyFrame, but it's missing required attributes") from e
     except AssertionError as e:

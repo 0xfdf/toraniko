@@ -12,6 +12,7 @@ from toraniko.math import (
     percentiles_xsection,
     winsorize_xsection,
 )
+from toraniko.utils import nan_to_null
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +24,7 @@ logger = logging.getLogger(__name__)
 ###
 
 
+# TODO: improve performance
 def factor_mom(
     returns_df: pl.DataFrame | pl.LazyFrame,
     trailing_days: int = 504,
@@ -35,6 +37,7 @@ def factor_mom(
     symbol_col: str = "symbol",
     date_col: str = "date",
     score_col: str = "mom_score",
+    drop_nans_and_nulls: bool = True,
     **kwargs,
 ) -> pl.LazyFrame:
     """Estimate rolling symbol by symbol momentum factor scores using asset returns.
@@ -90,7 +93,7 @@ def factor_mom(
             )
         )
         if winsor_factor is not None:
-            df = winsorize_xsection(df.collect(), (score_col,), date_col, percentile=winsor_factor).lazy()
+            df = winsorize_xsection(df, (score_col,), date_col, percentile=winsor_factor)
         if center:
             df = df.with_columns(
                 center_xsection(score_col, date_col, standardize=standardize).alias(score_col),
@@ -101,6 +104,8 @@ def factor_mom(
                     "WARNING: `standardize` is not applied if `center=False` is passed. Skipping standardization; "
                     "please check your arguments"
                 )
+        if drop_nans_and_nulls:
+            return nan_to_null(df.select(date_col, symbol_col, score_col), (score_col,)).drop_nulls()
         return df.select(date_col, symbol_col, score_col)
     except AttributeError as e:
         raise TypeError("`returns_df` must be a Polars DataFrame | LazyFrame, but it's missing attributes") from e
@@ -120,7 +125,7 @@ def factor_sze(
     symbol_col: str = "symbol",
     date_col: str = "date",
     score_col: str = "sze_score",
-    **kwargs,
+    drop_nans_and_nulls: bool = True**kwargs,
 ) -> pl.LazyFrame:
     """Estimate rolling symbol by symbol size factor scores using asset market caps.
 
@@ -176,6 +181,8 @@ def factor_sze(
                     "WARNING: `standardize` is not applied if `center=False` is passed. Skipping standardization; "
                     "please check your arguments"
                 )
+        if drop_nans_and_nulls:
+            return nan_to_null(df.select(date_col, symbol_col, score_col), (score_col,)).drop_nulls()
         return df.select(date_col, symbol_col, score_col)
     except AttributeError as e:
         raise TypeError("`mkt_cap_df` must be a Polars DataFrame or LazyFrame, but it's missing attributes") from e
@@ -194,6 +201,7 @@ def factor_val(
     symbol_col: str = "symbol",
     date_col: str = "date",
     score_col: str = "val_score",
+    drop_nans_and_nulls: bool = True,
     **kwargs,
 ) -> pl.LazyFrame:
     """Estimate rolling symbol by symbol value factor scores using price ratios.
@@ -255,11 +263,9 @@ def factor_val(
                     "WARNING: `standardize` is not applied if `center=False` is passed. Skipping standardization; "
                     "please check your arguments"
                 )
-        return df.select(
-            date_col,
-            symbol_col,
-            score_col,
-        )
+        if drop_nans_and_nulls:
+            return nan_to_null(df.select(date_col, symbol_col, score_col), (score_col,)).drop_nulls()
+        return df.select(date_col, symbol_col, score_col)
     except AttributeError as e:
         raise TypeError("`value_df` must be a Polars DataFrame or LazyFrame, but it's missing attributes") from e
     except pl_exc.ColumnNotFoundError as e:

@@ -158,9 +158,14 @@ def estimate_factor_returns(
     else:
         try:
             returns_df = (
-                returns_df.join(mkt_cap_df, on=[date_col, symbol_col])
-                .join(sector_df, on=[date_col, symbol_col])
-                .join(style_df, on=[date_col, symbol_col])
+                (
+                    returns_df.join(mkt_cap_df, on=[date_col, symbol_col])
+                    .join(sector_df, on=symbol_col)
+                    .join(style_df, on=[date_col, symbol_col])
+                )
+                .drop_nulls()
+                .lazy()
+                .collect()
             )
             # split the conditional winsorization branch into two functions, so we don't have a conditional
             # needlessly evaluated on each iteration of the `.map_groups`

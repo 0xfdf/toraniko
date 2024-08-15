@@ -8,6 +8,7 @@ import polars as pl
 import polars.exceptions as pl_exc
 
 from toraniko.config import load_config
+from toraniko.math import winsorize_xsection
 from toraniko.model import estimate_factor_returns
 from toraniko.styles import factor_mom, factor_sze, factor_val
 from toraniko.utils import create_dummy_variables, fill_features, smooth_features, top_n_by_group
@@ -45,7 +46,6 @@ class FactorModel:
         symbol_col: str = "symbol",
         date_col: str = "date",
         mkt_cap_col: str = "market_cap",
-        sectors_col: str = "sectors",
     ):
         """"""
         self.logger = logging.getLogger(__name__)
@@ -53,7 +53,6 @@ class FactorModel:
         self.symbol_col = symbol_col
         self.date_col = date_col
         self.mkt_cap_col = mkt_cap_col
-        self.sectors_col = sectors_col
         self.feature_data = feature_data
         self.sector_encodings = sector_encodings
         self.filled_features = None
@@ -61,11 +60,23 @@ class FactorModel:
         self.top_n_mkt_cap = None
         self.style_factors = {}
         self.style_df = None
+        self.weight_df = None
         self.factor_returns = None
         self.residual_returns = None
 
-    def clean_features(self, to_fill: list[str] | tuple[str, ...] | None, to_smooth: dict[str:int] | None) -> None:
+    # TODO: optimize this: we shouldn't have to loop over features in to_winsorize or to_smooth, it's wasteful
+    def clean_features(
+        self,
+        to_winsorize: dict[str:float] | None,
+        to_fill: list[str] | tuple[str, ...] | None,
+        to_smooth: dict[str:int] | None,
+    ) -> None:
         """"""
+        if to_winsorize is not None:
+            for feature in to_winsorize:
+                self.feature_data = winsorize_xsection(
+                    self.feature_data, (feature,), self.date_col, to_winsorize[feature]
+                )
         if to_fill is not None:
             self.feature_data = fill_features(self.feature_data, to_fill, self.date_col, self.symbol_col)
             self.filled_features = to_fill
@@ -88,7 +99,7 @@ class FactorModel:
         for style_factor in style_factors:
             self.style_factors[style_factor["name"]] = style_factor["function"](
                 self.feature_data, **style_factor["kwargs"]
-            ).collect()
+            )
         self.style_df = reduce(
             lambda left, right: left.join(
                 right,
@@ -101,32 +112,31 @@ class FactorModel:
             self.style_factors.values(),
         )
 
+    def proxy_for_idio_cov(self, method: Literal["market_cap", "ledoit_wolf"] = "market_cap") -> None:
+        match method:
+            case "ledoit_wolf":
+                raise NotImplementedError("Not implemented yet!")
+            case "market_cap":
+                self.weight_df = self.feature_data.select(self.date_col, self.symbol_col, self.mkt_cap_col)
+            case _:
+                raise ValueError(f"'{method}' is not a valid option for `proxy_for_idio_cov`")
+
+    # TODO: this needs further protections against nans and infs
     def estimate_factor_returns(
         self,
         winsor_factor: float = 0.01,
         residualize_styles: bool = False,
-        proxy_for_idio_cov: Literal["market_cap", "ledoit_wolf"] = "market_cap",
         asset_returns_col: str = "asset_returns",
         mkt_factor_col: str = "Market",
         res_ret_col: str = "res_asset_returns",
-        make_sector_dummies: bool = True,
     ) -> None:
         """"""
-        match proxy_for_idio_cov:
-            case "ledoit_wolf":
-                raise NotImplementedError("Not implemented yet!")
-            case "market_cap":
-                weight_df = self.feature_data.select(self.date_col, self.symbol_col, self.mkt_cap_col)
-            case _:
-                raise ValueError(f"'{proxy_for_idio_cov}' is not a valid option for `proxy_for_idio_cov`")
         returns_df = self.feature_data.select(self.date_col, self.symbol_col, asset_returns_col)
-        if make_sector_dummies:
-            self.sector_encodings = create_dummy_variables(self.sector_encodings, self.symbol_col, self.sectors_col)
         self.factor_returns, self.residual_returns = estimate_factor_returns(
-            returns_df,
-            weight_df,
-            self.sector_encodings,
-            self.style_df,
+            returns_df.lazy().collect(),
+            self.weight_df.lazy().collect(),
+            self.sector_encodings.lazy().collect(),
+            self.style_df.lazy().collect(),
             winsor_factor,
             residualize_styles,
             asset_returns_col,

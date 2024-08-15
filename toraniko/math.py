@@ -2,6 +2,7 @@
 
 import numpy as np
 import polars as pl
+import polars.exceptions as pl_exc
 
 
 def center_xsection(target_col: str, over_col: str, standardize: bool = False) -> pl.Expr:
@@ -124,14 +125,24 @@ def winsorize_xsection(
             group = group.with_columns(pl.Series(col, winsorized_data).alias(col))
         return group
 
-    match df:
-        case pl.DataFrame():
-            grouped = df.group_by(group_col).map_groups(winsorize_group)
-        case pl.LazyFrame():
-            grouped = df.group_by(group_col).map_groups(winsorize_group, schema=df.collect_schema())
-        case _:
-            raise TypeError("`df` must be a Polars DataFrame or LazyFrame")
-    return grouped
+    try:
+        return df.group_by(group_col).map_groups(winsorize_group, schema=df.collect_schema())
+    except AttributeError as e:
+        raise TypeError(
+            "`df` must be a Polars DataFrame or LazyFrame, but it's missing `group_by`, `map_groups` "
+            "and `collect_schema` attributes"
+        ) from e
+    except pl_exc.ColumnNotFoundError as e:
+        raise ValueError(f"`df` must have `data_cols` {data_cols} and `group_col` '{group_col}'")
+
+    # match df:
+    #     case pl.DataFrame():
+    #         grouped = df.group_by(group_col).map_groups(winsorize_group)
+    #     case pl.LazyFrame():
+    #         grouped = df.group_by(group_col).map_groups(winsorize_group, schema=df.collect_schema())
+    #     case _:
+    #         raise TypeError("`df` must be a Polars DataFrame or LazyFrame")
+    # return grouped
 
 
 def percentiles_xsection(
