@@ -1,8 +1,8 @@
 """End-to-end estimation of the style factor scores, factor returns and factor covariance."""
 
-import logging
 from functools import reduce
-from typing import Any, Callable, Iterable, Literal, TypedDict, Union
+import logging
+from typing import Callable, Iterable, Literal
 
 import polars as pl
 import polars.exceptions as pl_exc
@@ -10,8 +10,8 @@ import polars.exceptions as pl_exc
 from toraniko.config import load_config
 from toraniko.math import winsorize_xsection
 from toraniko.model import estimate_factor_returns
-from toraniko.styles import factor_mom, factor_sze, factor_val
-from toraniko.utils import create_dummy_variables, fill_features, smooth_features, top_n_by_group
+from toraniko import styles
+from toraniko.utils import fill_features, smooth_features, top_n_by_group
 
 # TODO: consider turning the config into kwargs so it can be run on its own, not just driven by config
 # TODO: the ergonomics of this really need to be solid
@@ -19,17 +19,9 @@ from toraniko.utils import create_dummy_variables, fill_features, smooth_feature
 # TODO: before factor score return estimation
 # Step 6: Estimate rolling Ledoit-Wolf shrunk asset covariance, or create rolling market cap weight matrix
 
-# Step 7: Estimate rolling factor returns
-
 # Step 8: Optionally re-estimate loadings via timeseries regression of each asset on market, sector and custom + style factors
 
 # Step 9: Estimate rolling Ledoit-Wolf + STFU factor covariance
-
-
-class StyleFactor(TypedDict):
-    name: str
-    function: Callable[[Union[pl.DataFrame, pl.LazyFrame], ...], Any]
-    kwargs: dict
 
 
 class FactorModel:
@@ -87,32 +79,43 @@ class FactorModel:
                 )
             self.smoothed_features = to_smooth
 
-    def reduce_universe_by_market_cap(self, top_n: int | None = 2000) -> None:
+    def reduce_universe_by_market_cap(self, top_n: int | None = 2000, collect: bool = True) -> None:
         """"""
         if top_n is not None:
             self.feature_data = top_n_by_group(self.feature_data, top_n, self.mkt_cap_col, (self.date_col,), True)
             self.top_n_mkt_cap = top_n
+        if collect:
+            self.feature_data = self.feature_data.collect()
 
-    # TODO: these can be threaded or concurrent, no need to do sequentially
-    def estimate_style_scores(self, style_factors: Iterable[StyleFactor]) -> None:
-        """"""
-        for style_factor in style_factors:
-            self.style_factors[style_factor["name"]] = style_factor["function"](
-                self.feature_data, **style_factor["kwargs"]
-            )
+    # TODO: figure out multiprocessing or multithreading, and implement it for a meaningful speed up
+    def estimate_style_scores(
+        self,
+        style_factor_funcs: Iterable[Callable],
+        style_factor_kwargs: Iterable[dict],
+        collect: bool = True,
+    ) -> None:
+
+        df = self.feature_data.lazy()
+
+        frames = []
+
+        for f, kwargs in zip(style_factor_funcs, style_factor_kwargs):
+
+            frames.append(f(df, **kwargs))
+
         self.style_df = reduce(
             lambda left, right: left.join(
                 right,
-                on=[
-                    self.date_col,
-                    self.symbol_col,
-                ],
+                on=[self.date_col, self.symbol_col],
                 how="inner",
             ),
-            self.style_factors.values(),
+            frames,
         )
 
-    def proxy_for_idio_cov(self, method: Literal["market_cap", "ledoit_wolf"] = "market_cap") -> None:
+        if collect:
+            self.style_df = self.style_df.collect()
+
+    def proxy_idio_cov(self, method: Literal["market_cap", "ledoit_wolf"] = "market_cap") -> None:
         match method:
             case "ledoit_wolf":
                 raise NotImplementedError("Not implemented yet!")
@@ -121,7 +124,6 @@ class FactorModel:
             case _:
                 raise ValueError(f"'{method}' is not a valid option for `proxy_for_idio_cov`")
 
-    # TODO: this needs further protections against nans and infs
     def estimate_factor_returns(
         self,
         winsor_factor: float = 0.01,
@@ -131,12 +133,11 @@ class FactorModel:
         res_ret_col: str = "res_asset_returns",
     ) -> None:
         """"""
-        returns_df = self.feature_data.select(self.date_col, self.symbol_col, asset_returns_col)
         self.factor_returns, self.residual_returns = estimate_factor_returns(
-            returns_df.lazy().collect(),
-            self.weight_df.lazy().collect(),
-            self.sector_encodings.lazy().collect(),
-            self.style_df.lazy().collect(),
+            self.feature_data.select(self.date_col, self.symbol_col, asset_returns_col),
+            self.weight_df,
+            self.sector_encodings,
+            self.style_df,
             winsor_factor,
             residualize_styles,
             asset_returns_col,

@@ -1,10 +1,13 @@
 """Complete implementation of the factor model."""
 
+import logging
+
 import numpy as np
 import polars as pl
 import polars.exceptions as pl_exc
 
 from toraniko.math import winsorize
+from toraniko.meta import deprecated
 
 
 def factor_returns_cs(
@@ -99,10 +102,10 @@ def factor_returns_cs(
 
 
 def estimate_factor_returns(
-    returns_df: pl.DataFrame,
-    mkt_cap_df: pl.DataFrame,
-    sector_df: pl.DataFrame,
-    style_df: pl.DataFrame,
+    returns_df: pl.DataFrame | pl.LazyFrame,
+    mkt_cap_df: pl.DataFrame | pl.LazyFrame,
+    sector_df: pl.DataFrame | pl.LazyFrame,
+    style_df: pl.DataFrame | pl.LazyFrame,
     winsor_factor: float | None = 0.05,
     residualize_styles: bool = True,
     asset_returns_col: str = "asset_returns",
@@ -122,10 +125,10 @@ def estimate_factor_returns(
 
     Parameters
     ----------
-    returns_df: Polars DataFrame containing | date | symbol | asset_returns |
-    mkt_cap_df: Polars DataFrame containing | date | symbol | market_cap |
-    sector_df: Polars DataFrame containing | date | symbol | followed by one column for each sector
-    style_df: Polars DataFrame containing | date | symbol | followed by one column for each style
+    returns_df: Polars DataFrame containing | `date_col` | `symbol_col` | `asset_returns_col` |
+    mkt_cap_df: Polars DataFrame containing | `date_col` | `symbol_col` | `mkt_cap_col` |
+    sector_df: Polars DataFrame containing | `date_col` | `symbol_col` | followed by one column for each sector
+    style_df: Polars DataFrame containing | `date_col` | `symbol_col` | followed by one column for each style
     winsor_factor: optional float indicating the symmetric percentile at which winsorization should be applied
     residualize_styles: bool indicating if style returns should be orthogonalized to market + sector returns
     asset_returns_col: str name of the column we expect to find asset return values in, defaults to "asset_returns"
@@ -138,6 +141,9 @@ def estimate_factor_returns(
     Returns
     -------
     tuple of Polars DataFrames melted by date: (factor returns, residual returns)
+    factor_returns has columns: | `date_col` | `mkt_factor_col` | sector_1 | ... | sector_n | style_1 | ... | style_m |
+    residual_returns has columns: | `date_col` | `symbol_col` | `res_ret_col` |
+
     """
     try:
         sectors = sorted(sector_df.select(pl.exclude(date_col, symbol_col)).columns)
@@ -158,17 +164,13 @@ def estimate_factor_returns(
     else:
         try:
             returns_df = (
-                (
-                    returns_df.join(mkt_cap_df, on=[date_col, symbol_col])
-                    .join(sector_df, on=symbol_col)
-                    .join(style_df, on=[date_col, symbol_col])
-                )
-                .drop_nulls()
-                .lazy()
-                .collect()
-            )
+                returns_df.lazy()
+                .join(mkt_cap_df.lazy(), on=[date_col, symbol_col])
+                .join(sector_df.lazy(), on=symbol_col)
+                .join(style_df.lazy(), on=[date_col, symbol_col])
+            ).collect()
             # split the conditional winsorization branch into two functions, so we don't have a conditional
-            # needlessly evaluated on each iteration of the `.map_groups`
+            # needlessly evaluated on each time period's iteration in the `.map_groups`
             if winsor_factor is not None:
 
                 def _estimate_factor_returns(data):

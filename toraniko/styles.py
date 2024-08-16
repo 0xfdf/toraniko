@@ -125,7 +125,8 @@ def factor_sze(
     symbol_col: str = "symbol",
     date_col: str = "date",
     score_col: str = "sze_score",
-    drop_nans_and_nulls: bool = True**kwargs,
+    drop_nans_and_nulls: bool = True,
+    **kwargs,
 ) -> pl.LazyFrame:
     """Estimate rolling symbol by symbol size factor scores using asset market caps.
 

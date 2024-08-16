@@ -1,5 +1,7 @@
 """Basic mathematical and statistical operations used in the model."""
 
+from typing import Literal
+
 import numpy as np
 import polars as pl
 import polars.exceptions as pl_exc
@@ -103,7 +105,7 @@ def winsorize_xsection(
     data_cols: tuple[str, ...],
     group_col: str,
     percentile: float = 0.05,
-) -> pl.DataFrame | pl.LazyFrame:
+) -> pl.LazyFrame:
     """Cross-sectionally winsorize the `data_cols` of `df`, grouped on `group_col`, to the symmetric percentile
     given by `percentile`.
 
@@ -126,23 +128,14 @@ def winsorize_xsection(
         return group
 
     try:
-        return df.group_by(group_col).map_groups(winsorize_group, schema=df.collect_schema())
+        return df.lazy().group_by(group_col).map_groups(winsorize_group, schema=df.collect_schema())
     except AttributeError as e:
         raise TypeError(
             "`df` must be a Polars DataFrame or LazyFrame, but it's missing `group_by`, `map_groups` "
             "and `collect_schema` attributes"
         ) from e
     except pl_exc.ColumnNotFoundError as e:
-        raise ValueError(f"`df` must have `data_cols` {data_cols} and `group_col` '{group_col}'")
-
-    # match df:
-    #     case pl.DataFrame():
-    #         grouped = df.group_by(group_col).map_groups(winsorize_group)
-    #     case pl.LazyFrame():
-    #         grouped = df.group_by(group_col).map_groups(winsorize_group, schema=df.collect_schema())
-    #     case _:
-    #         raise TypeError("`df` must be a Polars DataFrame or LazyFrame")
-    # return grouped
+        raise ValueError(f"`df` must have `data_cols` {data_cols} and `group_col` '{group_col}'") from e
 
 
 def percentiles_xsection(
@@ -210,7 +203,7 @@ def exp_weights(window: int, half_life: int) -> np.ndarray:
 
 
 # TODO: test
-def ledoit_wolf_shrinkage(X: np.ndarray) -> tuple[float | int, np.ndarray]:
+def ledoit_wolf_covariance(X: np.ndarray) -> tuple[float | int, np.ndarray]:
     """Estimate the covariance matrix of `X` via standard Ledoit-Wolf shrinkage.
 
     Parameters
@@ -249,3 +242,42 @@ def ledoit_wolf_shrinkage(X: np.ndarray) -> tuple[float | int, np.ndarray]:
     shrunk_cov = (1 - shrinkage) * sample_cov + shrinkage * mu * np.eye(m)
 
     return shrinkage, shrunk_cov
+
+
+# TODO: docstring
+# TODO: test
+def rolling_covariance(
+    df: pl.DataFrame | pl.LazyFrame,
+    window: int = 252,
+    over_col: str = "date",
+    group_col: str = "symbol",
+    values_col: str = "asset_returns",
+    shrinkage: Literal["ledoit_wolf"] | None = "ledoit_wolf",
+):
+    df = df.sort(over_col)
+
+    dates = df.lazy().collect()[over_col].unique().sort()
+
+    pivot_df = df.pivot(index=over_col, columns=group_col, values=values_col).sort(over_col)
+
+    returns_array = pivot_df.select(pl.exclude(over_col)).to_numpy()
+
+    results = []
+
+    match shrinkage:
+        case "ledoit_wolf":
+            for i in range(window - 1, len(dates)):
+                window_data = returns_array[i - window + 1 : i + 1]
+                shrink, cov_mat = ledoit_wolf_covariance(window_data)
+
+                results.append({over_col: dates[i], "cov_mat": cov_mat, "shrinkage": shrink})
+        case None:
+            for i in range(window - 1, len(dates)):
+                window_data = returns_array[i - window + 1 : i + 1]
+                cov_mat = np.cov(window_data.T)
+
+                results.append({over_col: dates[i], "cov_mat": cov_mat, "shrinkage": None})
+        case _:
+            raise ValueError(f"`shrinkage` value must be 'ledoit_wolf' or None, not '{shrinkage}'")
+
+    return results
