@@ -1,6 +1,6 @@
-# toraniko
+# Toraniko: Multi-factor risk models for quantitative trading
 
-Toraniko is a complete implementation of a risk model suitable for quantitative and systematic trading at institutional scale. In particular, it is a characteristic factor model in the same vein as Barra and Axioma (in fact, given the same datasets, it approximately reproduces Barra's estimated factor returns).
+Toraniko is a complete implementation of a risk model suitable for quantitative and systematic trading at institutional scale. In particular, it is a characteristic factor model in the same vein as Barra and Axioma (in fact, given the same inputs, it approximately reproduces Barra's estimated factor returns).
 
 ![mom_factor](https://github.com/user-attachments/assets/f9d2927c-e899-4fd6-944c-8f9a104b410f)
 
@@ -8,11 +8,22 @@ Using this library, you can create new custom factors and estimate their returns
 
 The only dependencies are numpy and polars. It supports market, sector and style factors; three styles are included: value, size and momentum. The library also comes with generalizable math and data cleaning utility functions you'd want to have for constructing more style factors (or custom fundamental factors of any kind).
 
+## Advantages
+
+- features: style/custom factor score construction, return estimation, factor covariance estimation with shrinkage
+- fast
+- fully tested
+- few dependencies: only numpy and polars. all mathematical and statistical primitives are implemented in the library
+- config-driven
+- generalized function for rapid custom factor construction
+
 ## Installation
 
-Using pip:
+First install using pip:
 
 `pip install toraniko`
+
+Then you can optionally create a config directory with `toraniko-init` in your command line.
 
 ## User Manual
 
@@ -182,3 +193,5 @@ Here is a comparison of the model value factor out versus Barra's. Even on a rel
 ![val_factor](https://github.com/user-attachments/assets/28f41989-f802-4c2f-beed-1d2bda24a96d)
 
 ![valu](https://github.com/user-attachments/assets/366f49a8-d7e7-46de-bb61-6f656393275a)
+
+## Limitations

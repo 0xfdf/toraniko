@@ -3,10 +3,10 @@
 import polars as pl
 import pytest
 import numpy as np
-from toraniko.model import _factor_returns, estimate_factor_returns
+from toraniko.model import factor_returns_cs, estimate_factor_returns
 
 ###
-# `_factor_returns`
+# `factor_returns_cs`
 ###
 
 
@@ -27,7 +27,7 @@ def sample_data():
 
 def test_output_shape_and_values(sample_data):
     returns, mkt_caps, sector_scores, style_scores = sample_data
-    fac_ret, epsilon = _factor_returns(returns, mkt_caps, sector_scores, style_scores, True)
+    fac_ret, epsilon = factor_returns_cs(returns, mkt_caps, sector_scores, style_scores, True)
 
     assert fac_ret.shape == (1 + sector_scores.shape[1] + style_scores.shape[1], 1)
     assert epsilon.shape == returns.shape
@@ -75,15 +75,15 @@ def test_residualize_styles(sample_data):
 
     # if we residualize the styles we should obtain different returns out of the function
 
-    fac_ret_res, _ = _factor_returns(returns, mkt_caps, sector_scores, style_scores, True)
-    fac_ret_non_res, _ = _factor_returns(returns, mkt_caps, sector_scores, style_scores, False)
+    fac_ret_res, _ = factor_returns_cs(returns, mkt_caps, sector_scores, style_scores, True)
+    fac_ret_non_res, _ = factor_returns_cs(returns, mkt_caps, sector_scores, style_scores, False)
 
     assert not np.allclose(fac_ret_res, fac_ret_non_res)
 
 
 def test_sector_constraint(sample_data):
     returns, mkt_caps, sector_scores, style_scores = sample_data
-    fac_ret, _ = _factor_returns(returns, mkt_caps, sector_scores, style_scores, True)
+    fac_ret, _ = factor_returns_cs(returns, mkt_caps, sector_scores, style_scores, True)
 
     sector_returns = fac_ret[1 : sector_scores.shape[1] + 1]
     assert np.isclose(np.sum(sector_returns), 0, atol=1e-10)
@@ -99,7 +99,7 @@ def test_zero_returns():
     sector_scores = np.random.randint(0, 2, size=(n_assets, n_sectors))
     style_scores = np.random.randn(n_assets, n_styles)
 
-    fac_ret, epsilon = _factor_returns(returns, mkt_caps, sector_scores, style_scores, True)
+    fac_ret, epsilon = factor_returns_cs(returns, mkt_caps, sector_scores, style_scores, True)
 
     assert np.allclose(fac_ret, 0)
     assert np.allclose(epsilon, 0)
@@ -108,8 +108,8 @@ def test_zero_returns():
 def test_market_cap_weighting(sample_data):
     returns, mkt_caps, sector_scores, style_scores = sample_data
 
-    fac_ret1, _ = _factor_returns(returns, mkt_caps, sector_scores, style_scores, True)
-    fac_ret2, _ = _factor_returns(returns, np.ones_like(mkt_caps), sector_scores, style_scores, True)
+    fac_ret1, _ = factor_returns_cs(returns, mkt_caps, sector_scores, style_scores, True)
+    fac_ret2, _ = factor_returns_cs(returns, np.ones_like(mkt_caps), sector_scores, style_scores, True)
 
     assert not np.allclose(fac_ret1, fac_ret2)
 
@@ -117,8 +117,8 @@ def test_market_cap_weighting(sample_data):
 def test_reproducibility(sample_data):
     returns, mkt_caps, sector_scores, style_scores = sample_data
 
-    fac_ret1, epsilon1 = _factor_returns(returns, mkt_caps, sector_scores, style_scores, True)
-    fac_ret2, epsilon2 = _factor_returns(returns, mkt_caps, sector_scores, style_scores, True)
+    fac_ret1, epsilon1 = factor_returns_cs(returns, mkt_caps, sector_scores, style_scores, True)
+    fac_ret2, epsilon2 = factor_returns_cs(returns, mkt_caps, sector_scores, style_scores, True)
 
     assert np.allclose(fac_ret1, fac_ret2)
     assert np.allclose(epsilon1, epsilon2)
@@ -134,8 +134,20 @@ def model_sample_data():
     symbols = ["AAPL", "MSFT", "GOOGL"]
     returns_data = {"date": dates * 3, "symbol": symbols * 3, "asset_returns": np.random.randn(9)}
     mkt_cap_data = {"date": dates * 3, "symbol": symbols * 3, "market_cap": np.random.rand(9) * 1000}
-    sector_data = {"date": dates * 3, "symbol": symbols * 3, "Tech": [1, 0, 0] * 3, "Finance": [0, 1, 0] * 3}
-    style_data = {"date": dates * 3, "symbol": symbols * 3, "Value": [1, 0, 0] * 3, "Growth": [0, 1, 0] * 3}
+    sector_data = {
+        "date": dates * 3,
+        "symbol": symbols * 3,
+        "Tech": [1, 0, 0] * 3,
+        "Finance": [0, 1, 0] * 3,
+        "Consumer": [0, 0, 1] * 3,
+    }
+    style_data = {
+        "date": dates * 3,
+        "symbol": symbols * 3,
+        "Value": [1.2, 1.3, 1.4] * 3,
+        "Growth": [0.8, 0.9, 1.0] * 3,
+        "Size": [1.6, 2.5, -0.6] * 3,
+    }
     return (pl.DataFrame(returns_data), pl.DataFrame(mkt_cap_data), pl.DataFrame(sector_data), pl.DataFrame(style_data))
 
 
@@ -145,7 +157,7 @@ def test_estimate_factor_returns_normal():
     assert isinstance(factor_returns, pl.DataFrame)
     assert isinstance(residual_returns, pl.DataFrame)
     assert factor_returns.shape[0] == 3  # Number of dates
-    assert residual_returns.shape[0] == 3  # Number of dates
+    assert residual_returns.shape[0] == 3 * 3  # Number of symbols * number of dates
 
 
 def test_estimate_factor_returns_empty():
@@ -162,4 +174,4 @@ def test_estimate_factor_returns_incorrect_types():
 def test_estimate_factor_returns_missing_columns():
     returns_df, mkt_cap_df, sector_df, style_df = model_sample_data()
     with pytest.raises(ValueError):
-        estimate_factor_returns(returns_df.drop("asset_returns"), mkt_cap_df, sector_df, style_df)
+        estimate_factor_returns(returns_df, mkt_cap_df, sector_df, style_df, asset_returns_col="symbol_returns")

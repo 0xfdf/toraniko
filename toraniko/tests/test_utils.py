@@ -5,7 +5,7 @@ import polars as pl
 import numpy as np
 from polars.testing import assert_frame_equal
 
-from toraniko.utils import fill_features, smooth_features, top_n_by_group
+from toraniko.utils import fill_features, smooth_features, top_n_by_group, create_dummy_variables
 
 ###
 # `fill_features`
@@ -283,3 +283,55 @@ def test_tie_handling(top_n_df):
     )
     assert result.shape == (3, 3)
     assert result["value"].to_list() == [30, 35, 26]
+
+
+###
+# `create_dummy_variables`
+###
+
+
+def test_create_dummy_variables_basic():
+    df = pl.DataFrame({"id": ["A", "B", "C"], "category": ["X", "Y", "Z"]})
+    result = create_dummy_variables(df, "id", "category").sort("id")
+    result = result.select(sorted(result.columns))
+    expected = pl.DataFrame(
+        {"id": ["A", "B", "C"], "X": [1, 0, 0], "Y": [0, 1, 0], "Z": [0, 0, 1]},
+        schema_overrides={"X": pl.Int32, "Y": pl.Int32, "Z": pl.Int32},
+    ).sort("id")
+    expected = expected.select(sorted(expected.columns))
+    assert_frame_equal(result, expected)
+
+
+def test_create_dummy_variables_multiple_categories():
+    df = pl.DataFrame({"id": ["A", "B", "C", "D"], "category": ["X", "Y", "X", "Z"]})
+    result = create_dummy_variables(df, "id", "category").sort("id")
+    result = result.select(sorted(result.columns))
+    expected = pl.DataFrame(
+        {"id": ["A", "B", "C", "D"], "X": [1, 0, 1, 0], "Y": [0, 1, 0, 0], "Z": [0, 0, 0, 1]},
+        schema_overrides={"X": pl.Int32, "Y": pl.Int32, "Z": pl.Int32},
+    ).sort("id")
+    expected = expected.select(sorted(expected.columns))
+    assert_frame_equal(result, expected)
+
+
+def test_create_dummy_variables_empty_dataframe():
+    df = pl.DataFrame({"id": [], "category": []})
+    with pytest.raises(ValueError, match="`df` is empty!"):
+        result = create_dummy_variables(df, "id", "category")
+
+
+def test_create_dummy_variables_duplicate_id():
+    df = pl.DataFrame({"id": ["A", "A", "B"], "category": ["X", "Y", "Z"]})
+    with pytest.raises(ValueError, match="It looks like you have duplicate values in the 'id' column"):
+        create_dummy_variables(df, "id", "category")
+
+
+def test_create_dummy_variables_missing_column():
+    df = pl.DataFrame({"id": ["A", "B"], "wrong_column": ["X", "Y"]})
+    with pytest.raises(ValueError, match="must have 'id' and 'category' columns"):
+        create_dummy_variables(df, "id", "category")
+
+
+def test_create_dummy_variables_invalid_input():
+    with pytest.raises(TypeError, match="`df` must be a Polars DataFrame, but it's missing required attributes"):
+        create_dummy_variables([1, 2, 3], "id", "category")
