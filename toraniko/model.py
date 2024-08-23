@@ -166,7 +166,7 @@ def estimate_factor_returns(
             returns_df = (
                 returns_df.lazy()
                 .join(mkt_cap_df.lazy(), on=[date_col, symbol_col])
-                .join(sector_df.lazy(), on=symbol_col)
+                .join(sector_df.lazy(), on=[date_col, symbol_col])
                 .join(style_df.lazy(), on=[date_col, symbol_col])
             ).collect()
             # split the conditional winsorization branch into two functions, so we don't have a conditional
@@ -174,7 +174,7 @@ def estimate_factor_returns(
             if winsor_factor is not None:
 
                 def _estimate_factor_returns(data):
-                    r = winsorize(data[asset_returns_col].to_numpy())
+                    r = winsorize(data[asset_returns_col].to_numpy(), percentile=winsor_factor)
                     fac, eps = factor_returns_cs(
                         r,
                         data[mkt_cap_col].to_numpy(),
@@ -220,6 +220,13 @@ def estimate_factor_returns(
                 "`returns_df` and `mkt_cap_df` must be Polars DataFrames, but there are missing attributes"
             ) from e
         except pl_exc.ColumnNotFoundError as e:
+            raise ValueError(
+                f"`returns_df` must have columns '{date_col}', '{symbol_col}' and '{asset_returns_col}'; "
+                f"`mkt_cap_df` must have '{date_col}', '{symbol_col}' and '{mkt_cap_col}' columns"
+            ) from e
+        except BaseException as e:
+            # This exception is not handled in Polars https://github.com/pola-rs/polars/issues/7704
+            # Exception raised in groupby.apply(UDF) causes panic
             raise ValueError(
                 f"`returns_df` must have columns '{date_col}', '{symbol_col}' and '{asset_returns_col}'; "
                 f"`mkt_cap_df` must have '{date_col}', '{symbol_col}' and '{mkt_cap_col}' columns"
