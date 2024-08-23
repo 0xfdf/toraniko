@@ -128,7 +128,8 @@ def winsorize_xsection(
         return group
 
     try:
-        return df.lazy().group_by(group_col).map_groups(winsorize_group, schema=df.collect_schema())
+        result = df.lazy().group_by(group_col).map_groups(winsorize_group, schema=df.collect_schema())
+        return result if isinstance(df, pl.LazyFrame) else result.collect()
     except AttributeError as e:
         raise TypeError(
             "`df` must be a Polars DataFrame or LazyFrame, but it's missing `group_by`, `map_groups` "
