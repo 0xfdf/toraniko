@@ -132,22 +132,22 @@ def test_reproducibility(sample_data):
 def model_sample_data():
     dates = ["2021-01-01", "2021-01-02", "2021-01-03"]
     symbols = ["AAPL", "MSFT", "GOOGL"]
-    returns_data = {"date": dates * 3, "symbol": symbols * 3, "asset_returns": np.random.randn(9)}
-    mkt_cap_data = {"date": dates * 3, "symbol": symbols * 3, "market_cap": np.random.rand(9) * 1000}
+    date_symbol_pairs = [(date, symbol) for date in dates for symbol in symbols]
+    dates_list, symbols_list = zip(*date_symbol_pairs)
+    returns_data = {"date": dates_list, "symbol": symbols_list, "asset_returns": np.random.randn(9)}
+    mkt_cap_data = {"date": dates_list, "symbol": symbols_list, "market_cap": np.random.rand(9) * 1000}
     sector_data = {
-        "date": dates * 3,
-        "symbol": symbols * 3,
+        "date": dates_list,
+        "symbol": symbols_list,
         "Tech": [1, 0, 0] * 3,
         "Finance": [0, 1, 0] * 3,
-        "Consumer": [0, 0, 1] * 3,
-    }
-    style_data = {
-        "date": dates * 3,
-        "symbol": symbols * 3,
-        "Value": [1.2, 1.3, 1.4] * 3,
-        "Growth": [0.8, 0.9, 1.0] * 3,
-        "Size": [1.6, 2.5, -0.6] * 3,
-    }
+        "Consumer": [0, 0, 1] * 3}
+    style_data = {"date": dates_list,
+                  "symbol": symbols_list,
+                  "Value": [1.2, 1.3, 1.4] * 3,
+                  "Growth": [0.8, 0.9, 1.0] * 3,
+                  "Size": [1.6, 2.5, -0.6] * 3}
+
     return (pl.DataFrame(returns_data), pl.DataFrame(mkt_cap_data), pl.DataFrame(sector_data), pl.DataFrame(style_data))
 
 
